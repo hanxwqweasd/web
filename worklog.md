@@ -284,3 +284,23 @@ Stage Summary:
 - Stars donation now uses reliable `invoice_closed` event
 - Leaderboard has native scroll + refresh button
 - Admin link: append `?admin=true` to game URL
+---
+Task ID: 1
+Agent: main
+Task: Simplify donation flow to sendInvoice-only (click → bot sends invoice → pay in chat → sync)
+
+Work Log:
+- Read current ShopView, send-invoice API, bot.mjs, claim API
+- Verified starShards initial value is 0 (not 50) in store.ts and API
+- Rewrote ShopView.tsx: removed createInvoiceLink/openInvoice/invoice_closed complexity
+- New flow: click tier → POST /api/stars/send-invoice → bot sends invoice to chat → user pays in chat → clicks "Проверить оплату" → syncs from DB
+- Added clear "Как это работает" step-by-step guide in UI
+- Added "Проверить оплату" button that appears after invoice is sent
+- Fixed bot.mjs: added API_URL env var (separate from GAME_URL which is Telegram URL)
+- Fixed claim API create branch: crystals = rewards.crystals + 50 (base)
+- Cleaned up unused invoice_closed listener from page.tsx
+
+Stage Summary:
+- ShopView now has simple 2-step flow: click → check payment
+- Bot needs API_URL env var on Railway (e.g. https://star-dominion-web.up.railway.app)
+- Files changed: ShopView.tsx, bot.mjs, page.tsx, claim/route.ts

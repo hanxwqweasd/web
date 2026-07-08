@@ -3,7 +3,7 @@
 import { useEffect, useRef } from 'react';
 import { useGameStore } from '@/lib/game/store';
 import type { GameScreen } from '@/lib/game/types';
-import { initTelegramWebApp, onInvoiceClosed, offInvoiceClosed, getTelegramUser, hapticFeedback } from '@/lib/telegram';
+import { initTelegramWebApp, getTelegramUser } from '@/lib/telegram';
 import StarField from '@/components/game/StarField';
 import ResourceBar from '@/components/game/ResourceBar';
 import NavigationBar from '@/components/game/NavigationBar';
@@ -252,22 +252,6 @@ export default function GamePage() {
       }).catch(() => {});
     }
 
-    // Listen for invoice_closed events (Stars payment confirmation)
-    // The actual reward granting happens in ShopView via /api/stars/claim
-    // Here we just provide haptic feedback
-    const handleInvoiceClosed = (event: { status: string; payload?: string }) => {
-      console.log('[Telegram] invoice_closed:', event);
-      if (event.status === 'paid') {
-        hapticFeedback('success');
-      } else if (event.status === 'failed') {
-        hapticFeedback('error');
-      }
-    };
-
-    onInvoiceClosed(handleInvoiceClosed);
-    return () => {
-      offInvoiceClosed(handleInvoiceClosed);
-    };
   }, []);
 
   // Game tick every 2 seconds

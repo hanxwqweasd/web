@@ -76,11 +76,11 @@ export async function POST(request: NextRequest) {
         create: {
           telegramUserId: tgId,
           captainName: `Captain-${tgId}`,
-          energy: rewards.energy + 100,
-          minerals: rewards.minerals + 100,
-          bioMatter: rewards.bioMatter + 50,
-          crystals: rewards.crystals,
-          starShards: rewards.starShards,
+          energy: rewards.energy + 500,
+          minerals: rewards.minerals + 300,
+          bioMatter: rewards.bioMatter + 100,
+          crystals: rewards.crystals + 50, // base 50 + reward
+          starShards: rewards.starShards, // base 0 + reward
         },
       });
 
