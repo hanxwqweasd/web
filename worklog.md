@@ -255,3 +255,32 @@ Stage Summary:
 - Admin: FIXED - `setScreen('admin')` works from browser console
 - Lint: 0 errors, 0 warnings
 - Limitation: sandbox kills background processes; bot needs real hosting for persistent operation
+
+---
+Task ID: 10
+Agent: Main Orchestrator
+Task: Fix crystals initial value, Stars donation, leaderboard, admin link
+
+Work Log:
+- Changed initial crystals from 10 to 50 in 3 places:
+  - `src/lib/game/store.ts` line 41: `crystals: 10` → `crystals: 50`
+  - `src/app/api/player/route.ts` line 71: `crystals: body.crystals ?? 0` → `crystals: body.crystals ?? 50`
+  - `prisma/schema.prisma` line 27: `crystals Float @default(0)` → `crystals Float @default(50)`
+  - Ran `bun run db:push` to sync DB schema
+- Fixed Telegram Stars donation flow:
+  - Root cause: `openInvoice(url, callback)` callback is ignored in newer Telegram client versions
+  - Fix: Added `onInvoiceClosed` event listener in ShopView that parses `event.payload` (format: `itemId:telegramUserId`)
+  - Rewards now claimed via `invoice_closed` event instead of unreliable callback
+  - Added `useEffect` for cleanup, `onInvoiceClosed`/`offInvoiceClosed` imports
+- Fixed leaderboard mobile scroll:
+  - Replaced `ScrollArea` (shadcn) with native `overflow-y-auto mobile-scroll` div
+  - Added `RefreshCw` refresh button in leaderboard header
+- Admin panel direct link:
+  - Page already supports `?admin=true` URL parameter (line 204 in page.tsx)
+  - Link: `{GAME_URL}?admin=true`
+
+Stage Summary:
+- Initial crystals now 50 (verified in browser: resource bar shows 50)
+- Stars donation now uses reliable `invoice_closed` event
+- Leaderboard has native scroll + refresh button
+- Admin link: append `?admin=true` to game URL

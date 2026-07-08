@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useGameStore } from '@/lib/game/store';
 import { SHOP_ITEMS } from '@/lib/game/constants';
@@ -13,7 +13,7 @@ import {
   Radar, Shield, Info, Send, Heart, Crown, Gem, ArrowRight,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { isTelegramWebApp, openStarsInvoice, getTelegramUser, hapticFeedback } from '@/lib/telegram';
+import { isTelegramWebApp, openStarsInvoice, getTelegramUser, hapticFeedback, onInvoiceClosed, offInvoiceClosed } from '@/lib/telegram';
 
 // ============================================
 // Telegram Stars Donation Tiers
@@ -89,6 +89,60 @@ export default function ShopView() {
     }
   }, [buyShopItem]);
 
+  // Handle invoice_closed event — this is the reliable way to detect payment
+  // (openInvoice callback is deprecated/ignored in newer Telegram versions)
+  const handleInvoiceEvent = useCallback((event: { status: string; payload?: string }) => {
+    console.log('[Shop] invoice_closed event:', event);
+    setPurchasingTier(null);
+
+    if (event.status === 'paid' && event.payload) {
+      // Payload format: "itemId:telegramUserId"
+      const [itemId, tgUserId] = event.payload.split(':');
+      if (!itemId || !tgUserId) return;
+
+      hapticFeedback('success');
+      toast.info('⏳ Начисляем награду...');
+
+      fetch('/api/stars/claim', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ itemId, telegramUserId: tgUserId }),
+      })
+      .then(r => r.json())
+      .then(result => {
+        if (result.success) {
+          toast.success(`✅ ${result.message}`);
+          // Sync resources from DB
+          const user = getTelegramUser();
+          if (user) {
+            fetch(`/api/player?telegramUserId=${user.id}`)
+              .then(r => r.json())
+              .then(data => {
+                if (data.player) {
+                  const p = data.player;
+                  useGameStore.setState({
+                    resources: { energy: p.energy, minerals: p.minerals, bioMatter: p.bioMatter, crystals: p.crystals },
+                    starShards: p.starShards,
+                  });
+                }
+              }).catch(() => {});
+          }
+        } else {
+          toast.error(result.error || 'Ошибка начисления');
+        }
+      })
+      .catch(() => toast.error('Сетевая ошибка'));
+    }
+  }, []);
+
+  // Register invoice_closed event listener on mount
+  useEffect(() => {
+    if (isTelegramWebApp()) {
+      onInvoiceClosed(handleInvoiceEvent);
+      return () => offInvoiceClosed(handleInvoiceEvent);
+    }
+  }, [handleInvoiceEvent]);
+
   const handleStarsDonation = useCallback(async (tierId: string) => {
     if (!isTelegramWebApp()) {
       toast.error('Откройте игру через Telegram для доната');
@@ -114,39 +168,9 @@ export default function ShopView() {
         return;
       }
 
-      openStarsInvoice(data.url, (status) => {
-        setPurchasingTier(null);
-        if (status === 'paid') {
-          // Claim rewards from server
-          fetch('/api/stars/claim', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ itemId: tierId, telegramUserId: String(user.id) }),
-          })
-          .then(r => r.json())
-          .then(result => {
-            if (result.success) {
-              toast.success(`✅ ${result.message}`);
-              hapticFeedback('success');
-              // Sync resources from DB
-              fetch(`/api/player?telegramUserId=${user.id}`)
-                .then(r => r.json())
-                .then(data => {
-                  if (data.player) {
-                    const p = data.player;
-                    useGameStore.setState({
-                      resources: { energy: p.energy, minerals: p.minerals, bioMatter: p.bioMatter, crystals: p.crystals },
-                      starShards: p.starShards,
-                    });
-                  }
-                }).catch(() => {});
-            } else {
-              toast.error(result.error || 'Ошибка начисления');
-            }
-          })
-          .catch(() => toast.error('Сетевая ошибка'));
-        }
-      });
+      // Open the native Telegram payment window
+      // Payment result is handled by the invoice_closed event listener above
+      openStarsInvoice(data.url);
     } catch {
       toast.error('Сетевая ошибка');
       setPurchasingTier(null);

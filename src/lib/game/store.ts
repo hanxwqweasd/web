@@ -38,7 +38,7 @@ const initialState: GameState = {
   factionRank: 0,
   rating: 1000,
   level: 1,
-  resources: { energy: 500, minerals: 300, bioMatter: 100, crystals: 10 },
+  resources: { energy: 500, minerals: 300, bioMatter: 100, crystals: 50 },
   resourceRates: { energy: 0, minerals: 0, bioMatter: 0, crystals: 0 },
   lastTick: Date.now(),
   lastCollectionTimes: {},

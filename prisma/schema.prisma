@@ -24,7 +24,7 @@ model Player {
   energy                Float    @default(500)
   minerals              Float    @default(500)
   bioMatter             Float    @default(200)
-  crystals              Float    @default(0)
+  crystals              Float    @default(50)
   starShards            Int      @default(0)
   sciencePoints         Float    @default(0)
 

@@ -68,7 +68,7 @@ export async function POST(request: NextRequest) {
         energy: body.energy ?? 500,
         minerals: body.minerals ?? 500,
         bioMatter: body.bioMatter ?? 200,
-        crystals: body.crystals ?? 0,
+        crystals: body.crystals ?? 50,
         starShards: body.starShards ?? 0,
         sciencePoints: body.sciencePoints ?? 0,
         referralCode,

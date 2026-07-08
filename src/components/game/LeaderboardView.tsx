@@ -7,7 +7,7 @@ import { FACTION_CONFIG } from '@/lib/game/constants';
 import { getTelegramUser, hapticFeedback } from '@/lib/telegram';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ScrollArea } from '@/components/ui/scroll-area';
+// ScrollArea replaced with native scroll for mobile compatibility
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Trophy,
@@ -23,6 +23,7 @@ import {
   Microscope,
   Target,
   Loader2,
+  RefreshCw,
 } from 'lucide-react';
 import {
   AlertDialog,
@@ -229,7 +230,7 @@ function RankingsList({
   if (restPlayers.length === 0) return null;
 
   return (
-    <ScrollArea className="max-h-[360px]">
+    <div className="max-h-[360px] overflow-y-auto overscroll-contain mobile-scroll">
       <div className="space-y-1.5">
         {restPlayers.map((player, i) => {
           const isMe = playerIsMe(player.telegramUserId);
@@ -286,7 +287,7 @@ function RankingsList({
           );
         })}
       </div>
-    </ScrollArea>
+    </div>
   );
 }
 
@@ -430,10 +431,20 @@ export default function LeaderboardView() {
       <motion.div
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
-        className="flex items-center gap-2 px-4 pt-3 pb-2"
+        className="flex items-center justify-between px-4 pt-3 pb-2"
       >
-        <Trophy className="w-5 h-5 text-neon-yellow" />
-        <h2 className="text-base font-bold neon-text-yellow">Таблица лидеров</h2>
+        <div className="flex items-center gap-2">
+          <Trophy className="w-5 h-5 text-neon-yellow" />
+          <h2 className="text-base font-bold neon-text-yellow">Таблица лидеров</h2>
+        </div>
+        <button
+          onClick={() => fetchLeaderboard(activeTab)}
+          disabled={loading}
+          className="w-8 h-8 rounded-lg flex items-center justify-center transition-all"
+          style={{ background: 'rgba(251, 191, 36, 0.1)', border: '1px solid rgba(251, 191, 36, 0.2)' }}
+        >
+          <RefreshCw className={`w-3.5 h-3.5 text-neon-yellow ${loading ? 'animate-spin' : ''}`} />
+        </button>
       </motion.div>
 
       {/* Period Tabs */}
