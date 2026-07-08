@@ -4,7 +4,7 @@ import { useGameStore } from '@/lib/game/store';
 import type { GameScreen } from '@/lib/game/types';
 import {
   Satellite, FlaskConical, Rocket, Map,
-  ShoppingBag, Trophy, User, ChevronLeft
+  ShoppingBag, Trophy, User, ChevronLeft, ScrollText
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -14,6 +14,7 @@ const NAV_ITEMS: { id: GameScreen; icon: React.ComponentType<{ className?: strin
   { id: 'techTree', icon: FlaskConical, label: 'Техно' },
   { id: 'map', icon: Map, label: 'Карта' },
   { id: 'leaderboard', icon: Trophy, label: 'Топ' },
+  { id: 'quests', icon: ScrollText, label: 'Квесты' },
   { id: 'profile', icon: User, label: 'Профиль' },
   { id: 'shop', icon: ShoppingBag, label: 'Магазин' },
 ];
