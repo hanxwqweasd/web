@@ -189,8 +189,9 @@ export default function GamePage() {
 
   // Expose setScreen to window for admin access via console
   useEffect(() => {
+    (window as any).setScreen = setScreen;
     (window as any).__setScreen = setScreen;
-    return () => { delete (window as any).__setScreen; };
+    console.log('%c[Star Dominion] Admin: setScreen("admin")', 'color: #00f0ff; font-weight: bold');
   }, [setScreen]);
 
   // Initialize Telegram Web App on mount + register player + handle referrals

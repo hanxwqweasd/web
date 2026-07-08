@@ -283,7 +283,7 @@ export default function MapView() {
   }, []);
 
   return (
-    <div className="relative w-full h-full flex flex-col" style={{ background: '#0a0a1a' }}>
+    <div className="relative w-full flex flex-col" style={{ background: '#0a0a1a', height: 'calc(100vh - 130px)' }}>
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 neon-border" style={{ background: 'rgba(15, 15, 35, 0.95)' }}>
         <div className="flex items-center gap-2">
