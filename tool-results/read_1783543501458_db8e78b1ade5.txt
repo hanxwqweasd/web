@@ -1,0 +1,727 @@
+     1→import { create } from 'zustand';
+     2→import { persist } from 'zustand/middleware';
+     3→import type { GameState, StationModule, Ship, Squadron, CombatResult, MapNode } from './types';
+     4→import { MODULE_DEFS, TECH_DEFS, SHIP_DEFS, ROOM_DEFS, DEFAULT_MAP_NODES, generateDailyQuests, COLLECTION_COOLDOWN, SCAN_COOLDOWN } from './constants';
+     5→import { v4 as uuid } from 'uuid';
+     6→
+     7→function calculateModuleProduction(mod: StationModule): Partial<Record<'energy' | 'minerals' | 'bioMatter' | 'crystals', number>> {
+     8→  const def = MODULE_DEFS.find(d => d.id === mod.defId);
+     9→  if (!def || mod.building) return {};
+    10→  const production: Record<string, number> = {};
+    11→  for (const [res, base] of Object.entries(def.baseProduction)) {
+    12→    production[res] = (base || 0) + (def.productionPerLevel[res as keyof typeof def.productionPerLevel] || 0) * (mod.level - 1);
+    13→  }
+    14→  return production as Partial<Record<'energy' | 'minerals' | 'bioMatter' | 'crystals', number>>;
+    15→}
+    16→
+    17→function getModuleCost(defId: string, level: number): Partial<Record<'energy' | 'minerals' | 'bioMatter' | 'crystals', number>> {
+    18→  const def = MODULE_DEFS.find(d => d.id === defId);
+    19→  if (!def) return {};
+    20→  const cost: Record<string, number> = {};
+    21→  for (const [res, base] of Object.entries(def.baseCost)) {
+    22→    cost[res] = Math.floor((base || 0) * Math.pow(def.costMultiplier, level - 1));
+    23→  }
+    24→  return cost as Partial<Record<'energy' | 'minerals' | 'bioMatter' | 'crystals', number>>;
+    25→}
+    26→
+    27→function getBuildTime(defId: string, level: number): number {
+    28→  const def = MODULE_DEFS.find(d => d.id === defId);
+    29→  if (!def) return 60;
+    30→  return def.buildTime + def.buildTimePerLevel * (level - 1);
+    31→}
+    32→
+    33→const initialQuests = generateDailyQuests();
+    34→
+    35→const initialState: GameState = {
+    36→  captainName: 'Капитан',
+    37→  faction: null,
+    38→  factionRank: 0,
+    39→  rating: 1000,
+    40→  level: 1,
+    41→  resources: { energy: 500, minerals: 300, bioMatter: 100, crystals: 10 },
+    42→  resourceRates: { energy: 0, minerals: 0, bioMatter: 0, crystals: 0 },
+    43→  lastTick: Date.now(),
+    44→  lastCollectionTimes: {},
+    45→  stationName: 'Форпост-7',
+    46→  stationLevel: 1,
+    47→  moduleSlots: 6,
+    48→  modules: [],
+    49→  researchedTechs: [],
+    50→  sciencePoints: 0,
+    51→  scienceRate: 0,
+    52→  ships: [],
+    53→  squadrons: [],
+    54→  combatLog: [],
+    55→  pvpWins: 0,
+    56→  pvpLosses: 0,
+    57→  unlockedRooms: ['bridge', 'engineering', 'bioLab', 'hangar'],
+    58→  mapNodes: DEFAULT_MAP_NODES.map(n => ({ ...n })),
+    59→  achievements: [],
+    60→  dailyQuests: initialQuests,
+    61→  starShards: 0,
+    62→  totalMineralsMined: 0,
+    63→  totalBattlesWon: 0,
+    64→  totalEnemiesDefeated: 0,
+    65→  lastScanTime: 0,
+    66→  lastAsteroidEvent: Date.now(),
+    67→  scanCooldown: SCAN_COOLDOWN,
+    68→  currentScreen: 'station',
+    69→  currentRoom: null,
+    70→  selectedModule: null,
+    71→  selectedTech: null,
+    72→  showCombatResults: false,
+    73→  notification: null,
+    74→  tutorialStep: 0,
+    75→  tutorialCompleted: false,
+    76→};
+    77→
+    78→interface GameStore extends GameState {
+    79→  // Tick
+    80→  tick: () => void;
+    81→
+    82→  // Resources
+    83→  collectResource: (moduleId: string) => { success: boolean; amount: Record<string, number>; message: string };
+    84→  canAfford: (cost: Partial<Record<'energy' | 'minerals' | 'bioMatter' | 'crystals', number>>) => boolean;
+    85→  spendResources: (cost: Partial<Record<'energy' | 'minerals' | 'bioMatter' | 'crystals', number>>) => void;
+    86→
+    87→  // Modules
+    88→  buildModule: (defId: string) => { success: boolean; message: string };
+    89→  upgradeModule: (moduleId: string) => { success: boolean; message: string };
+    90→  speedUpBuild: (moduleId: string) => { success: boolean; message: string };
+    91→  getModuleCost: (defId: string, level: number) => Partial<Record<'energy' | 'minerals' | 'bioMatter' | 'crystals', number>>;
+    92→  getBuildTimeRemaining: (moduleId: string) => number;
+    93→
+    94→  // Tech
+    95→  researchTech: (techId: string) => { success: boolean; message: string };
+    96→  canResearch: (techId: string) => boolean;
+    97→
+    98→  // Fleet
+    99→  buildShip: (defId: string) => { success: boolean; message: string };
+   100→  createSquadron: (name: string) => Squadron;
+   101→  assignShipToSquadron: (shipId: string, squadronId: string) => void;
+   102→  setTactic: (squadronId: string, tactic: 'aggressive' | 'defensive' | 'recon') => void;
+   103→
+   104→  // Combat
+   105→  attackNode: (nodeId: string, squadronId: string) => CombatResult | null;
+   106→  getFleetPower: (squadronId: string) => { attack: number; defense: number; speed: number };
+   107→
+   108→  // Map
+   109→  discoverNode: (nodeId: string) => void;
+   110→  getDiscoveredNodes: () => MapNode[];
+   111→
+   112→  // Rooms
+   113→  unlockRoom: (roomId: string) => { success: boolean; message: string };
+   114→
+   115→  // Shop
+   116→  buyShopItem: (itemId: string) => { success: boolean; message: string };
+   117→
+   118→  // Quests
+   119→  claimQuest: (questId: string) => { success: boolean; message: string };
+   120→  updateQuestProgress: (questId: string, amount: number) => void;
+   121→
+   122→  // Mini-games
+   123→  completeScan: (reward: number) => void;
+   124→  defendAsteroids: (success: boolean) => void;
+   125→
+   126→  // UI
+   127→  setScreen: (screen: GameState['currentScreen']) => void;
+   128→  setRoom: (room: GameState['currentRoom']) => void;
+   129→  selectModule: (id: string | null) => void;
+   130→  dismissNotification: () => void;
+   131→  setNotification: (msg: string) => void;
+   132→
+   133→  // Faction
+   134→  selectFaction: (factionId: 'traders' | 'military' | 'scientists') => void;
+   135→
+   136→  // Tutorial
+   137→  advanceTutorial: () => void;
+   138→
+   139→  // Profile
+   140→  setCaptainName: (name: string) => void;
+   141→
+   142→  // Reset
+   143→  resetGame: () => void;
+   144→
+   145→  // Recalculate
+   146→  recalculateRates: () => void;
+   147→}
+   148→
+   149→export const useGameStore = create<GameStore>()(
+   150→  persist(
+   151→    (set, get) => ({
+   152→      ...initialState,
+   153→
+   154→      tick: () => {
+   155→        const state = get();
+   156→        const now = Date.now();
+   157→        const elapsed = (now - state.lastTick) / 60000; // minutes
+   158→
+   159→        if (elapsed <= 0) return;
+   160→
+   161→        const newResources = { ...state.resources };
+   162→
+   163→        // Add passive production
+   164→        for (const mod of state.modules) {
+   165→          if (mod.building) {
+   166→            // Check if build completed
+   167→            if (mod.buildEndTime && now >= mod.buildEndTime) {
+   168→              const updatedModules = state.modules.map(m =>
+   169→                m.id === mod.id ? { ...m, building: false, buildStartTime: null, buildEndTime: null } : m
+   170→              );
+   171→              const modDef = MODULE_DEFS.find(d => d.id === mod.defId);
+   172→              set({ modules: updatedModules, notification: `✨ ${modDef?.name || 'Модуль'} построен!` });
+   173→              continue;
+   174→            }
+   175→          }
+   176→          const production = calculateModuleProduction(mod);
+   177→          for (const [res, rate] of Object.entries(production)) {
+   178→            newResources[res as keyof typeof newResources] += (rate || 0) * elapsed;
+   179→          }
+   180→        }
+   181→
+   182→        // Science points from laboratories
+   183→        const labModules = state.modules.filter(m => {
+   184→          const def = MODULE_DEFS.find(d => d.id === m.defId);
+   185→          return def?.type === 'research' && !m.building;
+   186→        });
+   187→        let scienceRate = 0;
+   188→        for (const mod of labModules) {
+   189→          scienceRate += 2 + mod.level;
+   190→        }
+   191→        const newScience = state.sciencePoints + scienceRate * elapsed;
+   192→
+   193→        // Energy passive consumption (1 per minute per module)
+   194→        const energyDrain = state.modules.length * 0.5 * elapsed;
+   195→        newResources.energy = Math.max(0, newResources.energy - energyDrain);
+   196→
+   197→        set({
+   198→          resources: {
+   199→            energy: Math.floor(newResources.energy),
+   200→            minerals: Math.floor(newResources.minerals),
+   201→            bioMatter: Math.floor(newResources.bioMatter),
+   202→            crystals: Math.floor(newResources.crystals * 10) / 10,
+   203→          },
+   204→          sciencePoints: Math.floor(newScience),
+   205→          scienceRate,
+   206→          lastTick: now,
+   207→        });
+   208→
+   209→        // Recalculate rates
+   210→        get().recalculateRates();
+   211→      },
+   212→
+   213→      recalculateRates: () => {
+   214→        const state = get();
+   215→        const rates = { energy: 0, minerals: 0, bioMatter: 0, crystals: 0 };
+   216→        for (const mod of state.modules) {
+   217→          if (mod.building) continue;
+   218→          const production = calculateModuleProduction(mod);
+   219→          for (const [res, rate] of Object.entries(production)) {
+   220→            rates[res as keyof typeof rates] += (rate || 0);
+   221→          }
+   222→        }
+   223→        rates.energy -= state.modules.length * 0.5;
+   224→        set({ resourceRates: rates });
+   225→      },
+   226→
+   227→      canAfford: (cost) => {
+   228→        const res = get().resources;
+   229→        for (const [key, value] of Object.entries(cost)) {
+   230→          if (value && (res[key as keyof typeof res] || 0) < value) return false;
+   231→        }
+   232→        return true;
+   233→      },
+   234→
+   235→      spendResources: (cost) => {
+   236→        const newRes = { ...get().resources };
+   237→        for (const [key, value] of Object.entries(cost)) {
+   238→          if (value) newRes[key as keyof typeof newRes] -= value;
+   239→        }
+   240→        set({ resources: newRes });
+   241→      },
+   242→
+   243→      collectResource: (moduleId) => {
+   244→        const state = get();
+   245→        const mod = state.modules.find(m => m.id === moduleId);
+   246→        if (!mod || mod.building) return { success: false, amount: {}, message: 'Модуль не найден или строится' };
+   247→
+   248→        const lastCol = state.lastCollectionTimes[moduleId] || 0;
+   249→        if (Date.now() - lastCol < COLLECTION_COOLDOWN) {
+   250→          const remaining = Math.ceil((COLLECTION_COOLDOWN - (Date.now() - lastCol)) / 60000);
+   251→          return { success: false, amount: {}, message: `Ручной сбор доступен через ${remaining} мин.` };
+   252→        }
+   253→
+   254→        const production = calculateModuleProduction(mod);
+   255→        const amount: Record<string, number> = {};
+   256→        const newRes = { ...state.resources };
+   257→        const newTimes = { ...state.lastCollectionTimes };
+   258→
+   259→        for (const [res, rate] of Object.entries(production)) {
+   260→          const bonus = Math.floor((rate || 0) * 3 * 5); // 3x bonus for 5 min worth
+   261→          amount[res] = bonus;
+   262→          newRes[res as keyof typeof newRes] += bonus;
+   263→        }
+   264→
+   265→        newTimes[moduleId] = Date.now();
+   266→
+   267→        if (Object.keys(amount).length === 0) {
+   268→          return { success: false, amount: {}, message: 'Этот модуль не производит ресурсы' };
+   269→        }
+   270→
+   271→        set({ resources: newRes, lastCollectionTimes: newTimes });
+   272→        return { success: true, amount, message: 'Собрано!' };
+   273→      },
+   274→
+   275→      buildModule: (defId) => {
+   276→        const state = get();
+   277→        if (state.modules.length >= state.moduleSlots) {
+   278→          return { success: false, message: 'Все слоты заняты! Расширьте станцию.' };
+   279→        }
+   280→
+   281→        const def = MODULE_DEFS.find(d => d.id === defId);
+   282→        if (!def) return { success: false, message: 'Модуль не найден' };
+   283→
+   284→        const cost = getModuleCost(defId, 1);
+   285→        if (!get().canAfford(cost)) {
+   286→          return { success: false, message: 'Недостаточно ресурсов!' };
+   287→        }
+   288→
+   289→        get().spendResources(cost);
+   290→
+   291→        const now = Date.now();
+   292→        const buildTime = getBuildTime(defId, 1);
+   293→        const newModule: StationModule = {
+   294→          id: uuid(),
+   295→          defId,
+   296→          level: 1,
+   297→          building: true,
+   298→          buildStartTime: now,
+   299→          buildEndTime: now + buildTime * 1000,
+   300→          health: 100,
+   301→          maxHealth: 100,
+   302→        };
+   303→
+   304→        set({ modules: [...state.modules, newModule] });
+   305→        get().recalculateRates();
+   306→
+   307→        return { success: true, message: `${def.name} начал строиться! (${buildTime}с)` };
+   308→      },
+   309→
+   310→      upgradeModule: (moduleId) => {
+   311→        const state = get();
+   312→        const mod = state.modules.find(m => m.id === moduleId);
+   313→        if (!mod) return { success: false, message: 'Модуль не найден' };
+   314→        if (mod.building) return { success: false, message: 'Модуль уже строится' };
+   315→
+   316→        const def = MODULE_DEFS.find(d => d.id === mod.defId);
+   317→        if (!def) return { success: false, message: 'Определение модуля не найдено' };
+   318→        if (mod.level >= def.maxLevel) return { success: false, message: 'Максимальный уровень!' };
+   319→
+   320→        const nextLevel = mod.level + 1;
+   321→        const cost = getModuleCost(mod.defId, nextLevel);
+   322→        if (!get().canAfford(cost)) {
+   323→          return { success: false, message: 'Недостаточно ресурсов!' };
+   324→        }
+   325→
+   326→        get().spendResources(cost);
+   327→
+   328→        const now = Date.now();
+   329→        const buildTime = getBuildTime(mod.defId, nextLevel);
+   330→
+   331→        const updatedModules = state.modules.map(m =>
+   332→          m.id === moduleId
+   333→            ? { ...m, building: true, buildStartTime: now, buildEndTime: now + buildTime * 1000 }
+   334→            : m
+   335→        );
+   336→
+   337→        set({ modules: updatedModules });
+   338→        get().recalculateRates();
+   339→
+   340→        return { success: true, message: `${def.name} улучшается до ур. ${nextLevel}!` };
+   341→      },
+   342→
+   343→      speedUpBuild: (moduleId) => {
+   344→        const state = get();
+   345→        const mod = state.modules.find(m => m.id === moduleId);
+   346→        if (!mod || !mod.building) return { success: false, message: 'Нет активной постройки' };
+   347→
+   348→        const updatedModules = state.modules.map(m =>
+   349→          m.id === moduleId
+   350→            ? { ...m, building: false, buildStartTime: null, buildEndTime: null }
+   351→            : m
+   352→        );
+   353→
+   354→        set({ modules: updatedModules, notification: '⚡ Постройка мгновенно завершена!' });
+   355→        get().recalculateRates();
+   356→
+   357→        return { success: true, message: 'Постройка завершена!' };
+   358→      },
+   359→
+   360→      getModuleCost,
+   361→      getBuildTimeRemaining: (moduleId) => {
+   362→        const mod = get().modules.find(m => m.id === moduleId);
+   363→        if (!mod || !mod.buildEndTime) return 0;
+   364→        return Math.max(0, mod.buildEndTime - Date.now());
+   365→      },
+   366→
+   367→      researchTech: (techId) => {
+   368→        const state = get();
+   369→        if (state.researchedTechs.includes(techId)) {
+   370→          return { success: false, message: 'Технология уже исследована' };
+   371→        }
+   372→
+   373→        const tech = TECH_DEFS.find(t => t.id === techId);
+   374→        if (!tech) return { success: false, message: 'Технология не найдена' };
+   375→
+   376→        if (!get().canResearch(techId)) {
+   377→          return { success: false, message: 'Не выполнены prerequisites!' };
+   378→        }
+   379→
+   380→        if (state.sciencePoints < tech.cost) {
+   381→          return { success: false, message: 'Недостаточно очков науки!' };
+   382→        }
+   383→        if (state.resources.crystals < tech.crystalCost) {
+   384→          return { success: false, message: 'Недостаточно кристаллов!' };
+   385→        }
+   386→
+   387→        set({
+   388→          researchedTechs: [...state.researchedTechs, techId],
+   389→          sciencePoints: state.sciencePoints - tech.cost,
+   390→          resources: { ...state.resources, crystals: state.resources.crystals - tech.crystalCost },
+   391→        });
+   392→
+   393→        return { success: true, message: `${tech.name} исследована!` };
+   394→      },
+   395→
+   396→      canResearch: (techId) => {
+   397→        const state = get();
+   398→        const tech = TECH_DEFS.find(t => t.id === techId);
+   399→        if (!tech) return false;
+   400→        return tech.prerequisites.every(p => state.researchedTechs.includes(p));
+   401→      },
+   402→
+   403→      buildShip: (defId) => {
+   404→        const state = get();
+   405→        const def = SHIP_DEFS.find(s => s.id === defId);
+   406→        if (!def) return { success: false, message: 'Корабль не найден' };
+   407→
+   408→        if (def.unlockedByTech && !state.researchedTechs.includes(def.unlockedByTech)) {
+   409→          return { success: false, message: 'Технология не исследована!' };
+   410→        }
+   411→
+   412→        if (!get().canAfford(def.cost)) {
+   413→          return { success: false, message: 'Недостаточно ресурсов!' };
+   414→        }
+   415→
+   416→        get().spendResources(def.cost);
+   417→
+   418→        const existing = state.ships.find(s => s.defId === defId);
+   419→        if (existing) {
+   420→          const updatedShips = state.ships.map(s =>
+   421→            s.defId === defId ? { ...s, quantity: s.quantity + 1 } : s
+   422→          );
+   423→          set({ ships: updatedShips });
+   424→        } else {
+   425→          const newShip: Ship = { id: uuid(), defId, name: def.name, quantity: 1, assignedSquadron: null };
+   426→          set({ ships: [...state.ships, newShip] });
+   427→        }
+   428→
+   429→        return { success: true, message: `${def.name} построен!` };
+   430→      },
+   431→
+   432→      createSquadron: (name) => {
+   433→        const squadron: Squadron = { id: uuid(), name, shipIds: [], tactic: 'aggressive' };
+   434→        set({ squadrons: [...get().squadrons, squadron] });
+   435→        return squadron;
+   436→      },
+   437→
+   438→      assignShipToSquadron: (shipId, squadronId) => {
+   439→        const state = get();
+   440→        const updatedShips = state.ships.map(s =>
+   441→          s.id === shipId ? { ...s, assignedSquadron: squadronId } : { ...s, assignedSquadron: s.id === shipId ? squadronId : s.assignedSquadron }
+   442→        );
+   443→        const squadron = state.squadrons.find(sq => sq.id === squadronId);
+   444→        const updatedSquadrons = state.squadrons.map(sq =>
+   445→          sq.id === squadronId && !sq.shipIds.includes(shipId)
+   446→            ? { ...sq, shipIds: [...sq.shipIds, shipId] }
+   447→            : sq
+   448→        );
+   449→        set({ ships: updatedShips, squadrons: updatedSquadrons });
+   450→      },
+   451→
+   452→      setTactic: (squadronId, tactic) => {
+   453→        const updatedSquadrons = get().squadrons.map(sq =>
+   454→          sq.id === squadronId ? { ...sq, tactic } : sq
+   455→        );
+   456→        set({ squadrons: updatedSquadrons });
+   457→      },
+   458→
+   459→      getFleetPower: (squadronId) => {
+   460→        const state = get();
+   461→        const squadron = state.squadrons.find(sq => sq.id === squadronId);
+   462→        if (!squadron) return { attack: 0, defense: 0, speed: 0 };
+   463→
+   464→        let attack = 0, defense = 0, speed = 0;
+   465→        for (const shipId of squadron.shipIds) {
+   466→          const ship = state.ships.find(s => s.id === shipId);
+   467→          if (!ship) continue;
+   468→          const def = SHIP_DEFS.find(d => d.id === ship.defId);
+   469→          if (!def) continue;
+   470→          attack += def.attack * ship.quantity;
+   471→          defense += def.defense * ship.quantity;
+   472→          speed += def.speed * ship.quantity;
+   473→        }
+   474→        return { attack, defense, speed: squadron.shipIds.length > 0 ? speed / squadron.shipIds.length : 0 };
+   475→      },
+   476→
+   477→      attackNode: (nodeId, squadronId) => {
+   478→        const state = get();
+   479→        const node = state.mapNodes.find(n => n.id === nodeId);
+   480→        if (!node) return null;
+   481→
+   482→        const squadron = state.squadrons.find(sq => sq.id === squadronId);
+   483→        if (!squadron || squadron.shipIds.length === 0) return null;
+   484→
+   485→        const power = get().getFleetPower(squadronId);
+   486→        const tacticMods = { aggressive: { atk: 1.2, def: 0.9 }, defensive: { atk: 0.9, def: 1.2 }, recon: { atk: 1.0, def: 1.0 } };
+   487→        const mod = tacticMods[squadron.tactic];
+   488→
+   489→        const playerPower = power.attack * mod.atk + power.defense * mod.def;
+   490→        const enemyPower = node.level * 50 + node.danger * 30;
+   491→
+   492→        const victory = playerPower > enemyPower * (0.7 + Math.random() * 0.6);
+   493→
+   494→        const result: CombatResult = {
+   495→          id: uuid(),
+   496→          timestamp: Date.now(),
+   497→          opponent: node.name,
+   498→          opponentLevel: node.level,
+   499→          victory,
+   500→          resourcesGained: victory ? (node.resources || {}) : {},
+   501→          shipsLost: victory ? Math.floor(Math.random() * 2) : Math.floor(Math.random() * 3) + 1,
+   502→          ratingChange: victory ? node.level * 15 : -node.level * 10,
+   503→        };
+   504→
+   505→        const newResources = { ...state.resources };
+   506→        if (victory) {
+   507→          for (const [res, val] of Object.entries(result.resourcesGained)) {
+   508→            newResources[res as keyof typeof newResources] += val || 0;
+   509→          }
+   510→        }
+   511→
+   512→        set({
+   513→          combatLog: [result, ...state.combatLog].slice(0, 50),
+   514→          resources: newResources,
+   515→          rating: Math.max(0, state.rating + result.ratingChange),
+   516→          pvpWins: victory ? state.pvpWins + 1 : state.pvpWins,
+   517→          pvpLosses: !victory ? state.pvpLosses + 1 : state.pvpLosses,
+   518→          totalBattlesWon: victory ? state.totalBattlesWon + 1 : state.totalBattlesWon,
+   519→          totalEnemiesDefeated: victory ? state.totalEnemiesDefeated + 1 : state.totalEnemiesDefeated,
+   520→          showCombatResults: true,
+   521→          notification: victory ? `⚔️ Победа над ${node.name}! +${result.ratingChange} рейтинга` : `💀 Поражение у ${node.name}. ${result.ratingChange} рейтинга`,
+   522→        });
+   523→
+   524→        return result;
+   525→      },
+   526→
+   527→      discoverNode: (nodeId) => {
+   528→        const state = get();
+   529→        const updatedNodes = state.mapNodes.map(n =>
+   530→          n.id === nodeId ? { ...n, discovered: true } : n
+   531→        );
+   532→        set({ mapNodes: updatedNodes });
+   533→      },
+   534→
+   535→      getDiscoveredNodes: () => {
+   536→        return get().mapNodes.filter(n => n.discovered);
+   537→      },
+   538→
+   539→      unlockRoom: (roomId) => {
+   540→        const state = get();
+   541→        if (state.unlockedRooms.includes(roomId)) {
+   542→          return { success: false, message: 'Комната уже открыта' };
+   543→        }
+   544→
+   545→        const room = ROOM_DEFS.find(r => r.id === roomId);
+   546→        if (!room?.unlockCost) {
+   547→          // Secret corridor - unlocked by reaching station level 3
+   548→          if (roomId === 'corridor' && state.stationLevel >= 3) {
+   549→            set({ unlockedRooms: [...state.unlockedRooms, roomId] });
+   550→            return { success: true, message: '🔔 Аварийный коридор открыт!' };
+   551→          }
+   552→          return { success: false, message: 'Невозможно открыть' };
+   553→        }
+   554→
+   555→        if (!get().canAfford(room.unlockCost)) {
+   556→          return { success: false, message: 'Недостаточно ресурсов!' };
+   557→        }
+   558→
+   559→        get().spendResources(room.unlockCost);
+   560→        set({ unlockedRooms: [...state.unlockedRooms, roomId] });
+   561→        return { success: true, message: `${room.name} открыт!` };
+   562→      },
+   563→
+   564→      buyShopItem: (itemId) => {
+   565→        // In a real app, this would call Telegram.WebApp.openInvoice()
+   566→        // For the prototype, we simulate with starShards
+   567→        const item = SHOP_ITEMS.find(i => i.id === itemId);
+   568→        if (!item) return { success: false, message: 'Предмет не найден' };
+   569→
+   570→        if (get().starShards < item.cost) {
+   571→          return { success: false, message: 'Недостаточно Звёздных осколков!' };
+   572→        }
+   573→
+   574→        set({
+   575→          starShards: get().starShards - item.cost,
+   576→          notification: `🛒 ${item.name} приобретён!`,
+   577→        });
+   578→
+   579→        if (item.effect === 'pack_minerals') {
+   580→          set({ resources: { ...get().resources, minerals: get().resources.minerals + 5000 } });
+   581→        } else if (item.effect === 'pack_energy') {
+   582→          set({ resources: { ...get().resources, energy: get().resources.energy + 5000 } });
+   583→        }
+   584→
+   585→        return { success: true, message: `${item.name} приобретён!` };
+   586→      },
+   587→
+   588→      claimQuest: (questId) => {
+   589→        const state = get();
+   590→        const quest = state.dailyQuests.find(q => q.id === questId);
+   591→        if (!quest || !quest.completed || quest.claimed) {
+   592→          return { success: false, message: 'Награда недоступна' };
+   593→        }
+   594→
+   595→        const newRes = { ...state.resources };
+   596→        if (quest.reward.resources) {
+   597→          for (const [res, val] of Object.entries(quest.reward.resources)) {
+   598→            newRes[res as keyof typeof newRes] += val || 0;
+   599→          }
+   600→        }
+   601→
+   602→        const updatedQuests = state.dailyQuests.map(q =>
+   603→          q.id === questId ? { ...q, claimed: true } : q
+   604→        );
+   605→
+   606→        set({
+   607→          dailyQuests: updatedQuests,
+   608→          resources: newRes,
+   609→          starShards: state.starShards + quest.reward.shards,
+   610→          notification: `🏆 Награда получена: +${quest.reward.shards} осколков!`,
+   611→        });
+   612→
+   613→        return { success: true, message: 'Награда получена!' };
+   614→      },
+   615→
+   616→      updateQuestProgress: (questId, amount) => {
+   617→        const state = get();
+   618→        const updatedQuests = state.dailyQuests.map(q => {
+   619→          if (q.id === questId && !q.completed) {
+   620→            const newProgress = q.progress + amount;
+   621→            const completed = newProgress >= q.target;
+   622→            return { ...q, progress: Math.min(newProgress, q.target), completed };
+   623→          }
+   624→          return q;
+   625→        });
+   626→        set({ dailyQuests: updatedQuests });
+   627→      },
+   628→
+   629→      completeScan: (reward) => {
+   630→        const state = get();
+   631→        set({
+   632→          lastScanTime: Date.now(),
+   633→          resources: { ...state.resources, crystals: state.resources.crystals + reward },
+   634→          starShards: state.starShards + 10,
+   635→          notification: `🔍 Сканирование завершено! +${reward} кристаллов, +10 осколков`,
+   636→        });
+   637→        get().updateQuestProgress('scan_sector', 1);
+   638→      },
+   639→
+   640→      defendAsteroids: (success) => {
+   641→        const state = get();
+   642→        if (success) {
+   643→          const bonus = 200 + Math.floor(Math.random() * 300);
+   644→          set({
+   645→            resources: { ...state.resources, minerals: state.resources.minerals + bonus },
+   646→            notification: `☄️ Астероиды уничтожены! +${bonus} минералов`,
+   647→          });
+   648→        } else {
+   649→          const modules = [...state.modules];
+   650→          if (modules.length > 0) {
+   651→            const target = modules[Math.floor(Math.random() * modules.length)];
+   652→            const updatedModules = modules.map(m =>
+   653→              m.id === target.id ? { ...m, health: Math.max(0, m.health - 20) } : m
+   654→            );
+   655→            set({
+   656→              modules: updatedModules,
+   657→              notification: '💥 Астероиды повредили модуль! (-20 HP)',
+   658→            });
+   659→          }
+   660→        }
+   661→      },
+   662→
+   663→      setScreen: (screen) => set({ currentScreen: screen, currentRoom: screen === 'room' ? get().currentRoom : null }),
+   664→      setRoom: (room) => set({ currentRoom: room, currentScreen: 'room' }),
+   665→      selectModule: (id) => set({ selectedModule: id }),
+   666→      dismissNotification: () => set({ notification: null }),
+   667→      setNotification: (msg) => set({ notification: msg }),
+   668→
+   669→      selectFaction: (factionId) => {
+   670→        if (get().faction) return;
+   671→        set({ faction: factionId, factionRank: 1 });
+   672→        get().setNotification(`Вы присоединились к фракции ${factionId === 'traders' ? 'Торговцев' : factionId === 'military' ? 'Военных' : 'Учёных'}!`);
+   673→      },
+   674→
+   675→      advanceTutorial: () => {
+   676→        const state = get();
+   677→        const next = state.tutorialStep + 1;
+   678→        if (next >= 5) {
+   679→          set({ tutorialStep: next, tutorialCompleted: true });
+   680→        } else {
+   681→          set({ tutorialStep: next });
+   682→        }
+   683→      },
+   684→
+   685→      setCaptainName: (name) => set({ captainName: name }),
+   686→
+   687→      resetGame: () => {
+   688→        set({ ...initialState, lastTick: Date.now(), dailyQuests: generateDailyQuests(), mapNodes: DEFAULT_MAP_NODES.map(n => ({ ...n })) });
+   689→      },
+   690→    }),
+   691→    {
+   692→      name: 'star-dominion-save',
+   693→      partialize: (state) => ({
+   694→        captainName: state.captainName,
+   695→        faction: state.faction,
+   696→        factionRank: state.factionRank,
+   697→        rating: state.rating,
+   698→        level: state.level,
+   699→        resources: state.resources,
+   700→        lastTick: state.lastTick,
+   701→        lastCollectionTimes: state.lastCollectionTimes,
+   702→        stationName: state.stationName,
+   703→        stationLevel: state.stationLevel,
+   704→        moduleSlots: state.moduleSlots,
+   705→        modules: state.modules,
+   706→        researchedTechs: state.researchedTechs,
+   707→        sciencePoints: state.sciencePoints,
+   708→        ships: state.ships,
+   709→        squadrons: state.squadrons,
+   710→        combatLog: state.combatLog,
+   711→        pvpWins: state.pvpWins,
+   712→        pvpLosses: state.pvpLosses,
+   713→        unlockedRooms: state.unlockedRooms,
+   714→        mapNodes: state.mapNodes,
+   715→        achievements: state.achievements,
+   716→        dailyQuests: state.dailyQuests,
+   717→        starShards: state.starShards,
+   718→        totalMineralsMined: state.totalMineralsMined,
+   719→        totalBattlesWon: state.totalBattlesWon,
+   720→        totalEnemiesDefeated: state.totalEnemiesDefeated,
+   721→        lastScanTime: state.lastScanTime,
+   722→        tutorialStep: state.tutorialStep,
+   723→        tutorialCompleted: state.tutorialCompleted,
+   724→      }),
+   725→    }
+   726→  )
+   727→);

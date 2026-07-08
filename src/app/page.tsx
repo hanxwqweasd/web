@@ -244,34 +244,12 @@ export default function GamePage() {
     }
 
     // Listen for invoice_closed events (Stars payment confirmation)
+    // The actual reward granting happens in ShopView via /api/stars/claim
+    // Here we just provide haptic feedback
     const handleInvoiceClosed = (event: { status: string; payload?: string }) => {
       console.log('[Telegram] invoice_closed:', event);
       if (event.status === 'paid') {
         hapticFeedback('success');
-        window.dispatchEvent(new CustomEvent('telegram-stars-paid', { detail: event.payload }));
-        // Refresh resources from DB after Stars payment
-        const tgUser = getTelegramUser();
-        if (tgUser) {
-          setTimeout(() => {
-            fetch(`/api/player?telegramUserId=${tgUser.id}`)
-              .then(r => r.json())
-              .then(data => {
-                if (data.player) {
-                  const p = data.player;
-                  useGameStore.setState({
-                    resources: {
-                      energy: p.energy,
-                      minerals: p.minerals,
-                      bioMatter: p.bioMatter,
-                      crystals: p.crystals,
-                    },
-                    starShards: p.starShards,
-                  });
-                  setNotification('⭐ Оплата получена! Ресурсы начислены.');
-                }
-              }).catch(() => {});
-          }, 1000);
-        }
       } else if (event.status === 'failed') {
         hapticFeedback('error');
       }
