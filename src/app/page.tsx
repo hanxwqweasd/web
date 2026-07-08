@@ -355,7 +355,7 @@ export default function GamePage() {
         <ResourceBar />
 
         {/* Main content area */}
-        <main className="flex-1 overflow-y-auto overflow-x-hidden pb-20">
+        <main className="flex-1 overflow-y-auto overflow-x-hidden pb-[70px]">
           <AnimatePresence mode="wait">
             <motion.div
               key={currentScreen}

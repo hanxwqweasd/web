@@ -588,7 +588,7 @@ function BuildMenuItem({ def, onBuild }: { def: typeof MODULE_DEFS[0]; onBuild: 
     <motion.div
       initial={{ opacity: 0, x: 10 }}
       animate={{ opacity: 1, x: 0 }}
-      className="flex items-start gap-3 p-3 rounded-lg transition-colors duration-200"
+      className="flex items-start gap-3 p-3 rounded-xl transition-colors duration-200 active:bg-white/5"
       style={{
         background: 'rgba(0, 240, 255, 0.03)',
         border: '1px solid rgba(0, 240, 255, 0.08)',
@@ -622,12 +622,13 @@ function BuildMenuItem({ def, onBuild }: { def: typeof MODULE_DEFS[0]; onBuild: 
               onBuild();
             }}
             disabled={!affordable}
-            className={`holo-btn flex items-center gap-1 px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all ${
+            className={`holo-btn flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-xs font-medium transition-all ${
               affordable ? 'text-neon-cyan' : 'text-muted-foreground/40 cursor-not-allowed'
             }`}
             style={{
               background: affordable ? 'rgba(0, 240, 255, 0.1)' : 'rgba(255, 255, 255, 0.03)',
               border: `1px solid ${affordable ? 'rgba(0, 240, 255, 0.4)' : 'rgba(255, 255, 255, 0.05)'}`,
+              minHeight: '40px',
             }}
           >
             <Hammer className="w-3 h-3" />
@@ -643,7 +644,6 @@ function BuildMenu({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [activeTab, setActiveTab] = useState('all');
   const buildModule = useGameStore(s => s.buildModule);
   const setNotification = useGameStore(s => s.setNotification);
-  const modules = useGameStore(s => s.modules);
 
   const handleBuild = useCallback(
     (defId: string) => {
@@ -664,10 +664,10 @@ function BuildMenu({ open, onClose }: { open: boolean; onClose: () => void }) {
     <Sheet open={open} onOpenChange={v => !v && onClose()}>
       <SheetContent
         side="bottom"
-        className="rounded-t-2xl border-t border-white/10 p-0 max-h-[85vh]"
+        className="rounded-t-2xl border-t border-white/10 p-0 max-h-[85vh] flex flex-col overflow-hidden"
         style={{ background: 'rgba(10, 10, 26, 0.97)', backdropFilter: 'blur(20px)' }}
       >
-        <SheetHeader className="px-4 pt-4 pb-2">
+        <SheetHeader className="px-4 pt-4 pb-2 flex-shrink-0">
           <SheetTitle className="text-base font-bold neon-text-cyan text-center">
             <Hammer className="w-4 h-4 inline mr-1.5 -mt-0.5" />
             Построить модуль
@@ -677,15 +677,15 @@ function BuildMenu({ open, onClose }: { open: boolean; onClose: () => void }) {
           </SheetDescription>
         </SheetHeader>
 
-        {/* Type tabs */}
-        <div className="px-3 pb-2">
+        {/* Type tabs — horizontally scrollable */}
+        <div className="px-3 pb-2 flex-shrink-0">
           <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList className="w-full h-8 bg-white/5 p-0.5 overflow-x-auto scrollbar-none">
+            <TabsList className="w-full h-9 bg-white/5 p-0.5 overflow-x-auto tabs-scroll">
               {BUILD_TABS.map(tab => (
                 <TabsTrigger
                   key={tab.value}
                   value={tab.value}
-                  className="text-[10px] font-mono px-2.5 py-1 flex-shrink-0 data-[state=active]:bg-neon-cyan/10 data-[state=active]:text-neon-cyan data-[state=active]:border data-[state=active]:border-neon-cyan/30 rounded-md"
+                  className="text-[11px] font-mono px-3 py-1.5 flex-shrink-0 data-[state=active]:bg-neon-cyan/10 data-[state=active]:text-neon-cyan data-[state=active]:border data-[state=active]:border-neon-cyan/30 rounded-md whitespace-nowrap"
                 >
                   {tab.label}
                 </TabsTrigger>
@@ -694,8 +694,8 @@ function BuildMenu({ open, onClose }: { open: boolean; onClose: () => void }) {
           </Tabs>
         </div>
 
-        {/* Module list */}
-        <ScrollArea className="max-h-[55vh] px-3 pb-6">
+        {/* Module list — takes all remaining space, scrollable */}
+        <div className="flex-1 overflow-y-auto overscroll-contain px-3 pb-8 mobile-scroll">
           <div className="flex flex-col gap-2 pt-1">
             <AnimatePresence mode="popLayout">
               {filteredDefs.map(def => (
@@ -708,7 +708,7 @@ function BuildMenu({ open, onClose }: { open: boolean; onClose: () => void }) {
               </div>
             )}
           </div>
-        </ScrollArea>
+        </div>
       </SheetContent>
     </Sheet>
   );
@@ -822,7 +822,7 @@ export default function StationView() {
   const buildingCount = modules.filter(m => m.building).length;
 
   return (
-    <section className="relative z-10 flex flex-col min-h-[calc(100vh-120px)] pb-24">
+    <section className="relative z-10 flex flex-col min-h-[calc(100vh-120px)] pb-2">
       {/* Station Header */}
       <motion.header
         initial={{ opacity: 0, y: -10 }}

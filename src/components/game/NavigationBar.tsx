@@ -38,7 +38,7 @@ export default function NavigationBar() {
             initial={{ y: -60, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: -60, opacity: 0 }}
-            className="fixed top-0 left-0 right-0 z-50 flex justify-center px-4 pt-2"
+            className="fixed top-0 left-0 right-0 z-50 flex justify-center px-3 pt-2 safe-top"
           >
             <div
               className="slide-in-down px-4 py-2.5 rounded-xl text-sm font-medium text-center max-w-sm neon-border"
@@ -53,11 +53,11 @@ export default function NavigationBar() {
 
       {/* Room back button */}
       {isInRoom && (
-        <div className="fixed bottom-20 left-2 z-40">
+        <div className="fixed bottom-24 left-3 z-40">
           <button
             onClick={() => { setRoom(null); setScreen('station'); }}
-            className="flex items-center gap-1 px-3 py-2 rounded-lg text-xs font-mono text-cyan-300 neon-border holo-btn"
-            style={{ background: 'rgba(10, 10, 30, 0.9)' }}
+            className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-mono text-cyan-300 neon-border holo-btn active:scale-95 transition-transform"
+            style={{ background: 'rgba(10, 10, 30, 0.9)', minHeight: '44px' }}
           >
             <ChevronLeft className="w-4 h-4" />
             Назад
@@ -67,11 +67,12 @@ export default function NavigationBar() {
 
       {/* Bottom navigation */}
       <div
-        className="fixed bottom-0 left-0 right-0 z-40 px-1 pb-1"
-        style={{ background: 'linear-gradient(to top, rgba(5, 5, 16, 0.98) 60%, transparent)' }}
+        className="fixed bottom-0 left-0 right-0 z-40 safe-bottom"
+        style={{ background: 'linear-gradient(to top, rgba(5, 5, 16, 0.98) 70%, transparent)', paddingTop: '6px' }}
       >
-        <nav className="flex items-center justify-around px-1 py-1.5 max-w-lg mx-auto rounded-2xl neon-border"
-          style={{ background: 'rgba(10, 10, 26, 0.92)', backdropFilter: 'blur(12px)' }}
+        <nav
+          className="flex items-stretch justify-around mx-2 mb-1 rounded-2xl neon-border overflow-hidden"
+          style={{ background: 'rgba(10, 10, 26, 0.95)', backdropFilter: 'blur(12px)', minHeight: '52px' }}
         >
           {NAV_ITEMS.map(item => {
             const Icon = item.icon;
@@ -80,20 +81,21 @@ export default function NavigationBar() {
               <button
                 key={item.id}
                 onClick={() => setScreen(item.id)}
-                className={`relative flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-xl transition-all duration-200 ${
-                  isActive ? 'scale-105' : 'opacity-50 hover:opacity-70'
+                className={`relative flex flex-col items-center justify-center gap-0.5 flex-1 min-w-0 transition-all duration-200 active:scale-95 ${
+                  isActive ? 'opacity-100' : 'opacity-45 hover:opacity-65'
                 }`}
+                style={{ minHeight: '52px' }}
               >
                 {isActive && (
                   <motion.div
                     layoutId="nav-active"
-                    className="absolute inset-0 rounded-xl"
-                    style={{ background: 'rgba(0, 240, 255, 0.1)', border: '1px solid rgba(0, 240, 255, 0.3)' }}
+                    className="absolute inset-0 rounded-none"
+                    style={{ background: 'rgba(0, 240, 255, 0.08)', borderTop: '2px solid rgba(0, 240, 255, 0.6)' }}
                     transition={{ type: 'spring', bounce: 0.2, duration: 0.4 }}
                   />
                 )}
-                <Icon className={`w-4.5 h-4.5 relative z-10 ${isActive ? 'text-neon-cyan' : ''}`} />
-                <span className={`text-[9px] font-mono relative z-10 ${isActive ? 'neon-text-cyan' : 'text-muted-foreground'}`}>
+                <Icon className={`w-[18px] h-[18px] relative z-10 flex-shrink-0 ${isActive ? 'text-neon-cyan' : ''}`} />
+                <span className={`text-[10px] leading-tight relative z-10 font-medium ${isActive ? 'neon-text-cyan' : 'text-muted-foreground'}`}>
                   {item.label}
                 </span>
               </button>

@@ -94,6 +94,43 @@
   }
 }
 
+/* Hide scrollbar but keep scrolling */
+.scrollbar-none,
+.tabs-scroll {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar,
+.tabs-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+/* Mobile-friendly scroll with momentum */
+.mobile-scroll {
+  -webkit-overflow-scrolling: touch;
+  -ms-overflow-style: none;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 240, 255, 0.3) transparent;
+}
+.mobile-scroll::-webkit-scrollbar {
+  width: 3px;
+}
+.mobile-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.mobile-scroll::-webkit-scrollbar-thumb {
+  background: rgba(0, 240, 255, 0.3);
+  border-radius: 2px;
+}
+
+/* Safe area support for notched devices */
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.safe-top {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
 /* Custom scrollbar for space theme */
 ::-webkit-scrollbar {
   width: 4px;

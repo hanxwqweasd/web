@@ -1,0 +1,922 @@
+     1→'use client';
+     2→
+     3→import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+     4→import { motion, AnimatePresence } from 'framer-motion';
+     5→import { useGameStore } from '@/lib/game/store';
+     6→import {
+     7→  MODULE_DEFS,
+     8→  MODULE_TYPE_NAMES,
+     9→  RESOURCE_CONFIG,
+    10→  ROOM_DEFS,
+    11→  COLLECTION_COOLDOWN,
+    12→} from '@/lib/game/constants';
+    13→import type { ModuleType, RoomId, ResourceType, StationModule } from '@/lib/game/types';
+    14→
+    15→import {
+    16→  Zap,
+    17→  Pickaxe,
+    18→  Leaf,
+    19→  Factory,
+    20→  Shield,
+    21→  Crosshair,
+    22→  FlaskConical,
+    23→  Diamond,
+    24→  Users,
+    25→  Rocket,
+    26→  Compass,
+    27→  Wrench,
+    28→  Wine,
+    29→  Server,
+    30→  AlertTriangle,
+    31→  Plus,
+    32→  ArrowUpCircle,
+    33→  Timer,
+    34→  Lock,
+    35→  ChevronRight,
+    36→  HandCoins,
+    37→  Hammer,
+    38→  Orbit,
+    39→  Heart,
+    40→  Cpu,
+    41→  BoxesIcon,
+    42→} from 'lucide-react';
+    43→import { Badge } from '@/components/ui/badge';
+    44→import { Progress } from '@/components/ui/progress';
+    45→import { Button } from '@/components/ui/button';
+    46→import { ScrollArea } from '@/components/ui/scroll-area';
+    47→import {
+    48→  Sheet,
+    49→  SheetContent,
+    50→  SheetHeader,
+    51→  SheetTitle,
+    52→  SheetDescription,
+    53→} from '@/components/ui/sheet';
+    54→import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+    55→
+    56→// ============================================
+    57→// Icon name → component mapping
+    58→// ============================================
+    59→const ICON_MAP: Record<string, React.ComponentType<{ className?: string; style?: React.CSSProperties }>> = {
+    60→  Zap, Pickaxe, Leaf, Factory, Shield, Crosshair, FlaskConical, Diamond, Users, Rocket,
+    61→  Compass, Wrench, Wine, Server, AlertTriangle,
+    62→  HandCoins, Hammer, Orbit, Heart, Cpu, BoxesIcon,
+    63→};
+    64→
+    65→// ============================================
+    66→// Helpers
+    67→// ============================================
+    68→function formatNumber(n: number): string {
+    69→  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+    70→  if (n >= 10_000) return `${(n / 1_000).toFixed(1)}k`;
+    71→  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+    72→  return n < 10 ? n.toFixed(1) : Math.floor(n).toString();
+    73→}
+    74→
+    75→function formatTime(ms: number): string {
+    76→  const totalSec = Math.max(0, Math.ceil(ms / 1000));
+    77→  const m = Math.floor(totalSec / 60);
+    78→  const s = totalSec % 60;
+    79→  return `${m}:${s.toString().padStart(2, '0')}`;
+    80→}
+    81→
+    82→function calculateModuleProduction(mod: StationModule): Partial<Record<ResourceType, number>> {
+    83→  const def = MODULE_DEFS.find(d => d.id === mod.defId);
+    84→  if (!def || mod.building) return {};
+    85→  const production: Partial<Record<ResourceType, number>> = {};
+    86→  for (const [res, base] of Object.entries(def.baseProduction)) {
+    87→    production[res as ResourceType] =
+    88→      (base || 0) + (def.productionPerLevel[res as keyof typeof def.productionPerLevel] || 0) * (mod.level - 1);
+    89→  }
+    90→  return production;
+    91→}
+    92→
+    93→function hasProduction(mod: StationModule): boolean {
+    94→  const def = MODULE_DEFS.find(d => d.id === mod.defId);
+    95→  return def ? Object.keys(def.baseProduction).length > 0 : false;
+    96→}
+    97→
+    98→function getHealthColor(ratio: number): string {
+    99→  if (ratio > 0.7) return '#22c55e';
+   100→  if (ratio > 0.3) return '#fbbf24';
+   101→  return '#ef4444';
+   102→}
+   103→
+   104→function getModuleGlowIntensity(level: number, maxLevel: number): number {
+   105→  const ratio = level / maxLevel;
+   106→  return 0.15 + ratio * 0.35;
+   107→}
+   108→
+   109→// ============================================
+   110→// Sub-components
+   111→// ============================================
+   112→
+   113→/** Shimmer progress bar for building modules */
+   114→function BuildProgressBar({ startTime, endTime }: { startTime: number; endTime: number }) {
+   115→  const [progress, setProgress] = useState(0);
+   116→  const [remaining, setRemaining] = useState('');
+   117→
+   118→  useEffect(() => {
+   119→    const update = () => {
+   120→      const now = Date.now();
+   121→      const total = endTime - startTime;
+   122→      const elapsed = now - startTime;
+   123→      const p = Math.min(100, Math.max(0, (elapsed / total) * 100));
+   124→      const rem = Math.max(0, endTime - now);
+   125→      setProgress(p);
+   126→      setRemaining(formatTime(rem));
+   127→    };
+   128→    update();
+   129→    const id = setInterval(update, 1000);
+   130→    return () => clearInterval(id);
+   131→  }, [startTime, endTime]);
+   132→
+   133→  return (
+   134→    <div className="relative w-full h-3 rounded-full overflow-hidden bg-white/5">
+   135→      {/* Base progress */}
+   136→      <div
+   137→        className="h-full rounded-full transition-all duration-1000 ease-linear"
+   138→        style={{ width: `${progress}%`, background: 'linear-gradient(90deg, #00f0ff, #00c8ff)' }}
+   139→      />
+   140→      {/* Shimmer overlay */}
+   141→      <div className="absolute inset-0 build-shimmer rounded-full" />
+   142→      {/* Time text */}
+   143→      <div className="absolute inset-0 flex items-center justify-center">
+   144→        <span className="text-[9px] font-mono font-bold text-white drop-shadow-[0_0_4px_rgba(0,0,0,0.8)]">
+   145→          {remaining}
+   146→        </span>
+   147→      </div>
+   148→    </div>
+   149→  );
+   150→}
+   151→
+   152→/** Particle burst effect container */
+   153→function ParticleBurst({ active }: { active: boolean }) {
+   154→  const [visible, setVisible] = useState(false);
+   155→  const particlesRef = useRef<Array<{ id: number; x: number; y: number; color: string }>>([]);
+   156→  const timerRef = useRef<ReturnType<typeof setTimeout>>();
+   157→
+   158→  const stableSeed = useRef(0);
+   159→  if (active && stableSeed.current === 0) {
+   160→    const colors = ['#00f0ff', '#a855f7', '#22c55e', '#fbbf24', '#ff6b35'];
+   161→    particlesRef.current = Array.from({ length: 12 }, (_, i) => ({
+   162→      id: Date.now() + i,
+   163→      x: (Math.random() - 0.5) * 80,
+   164→      y: (Math.random() - 0.5) * 80,
+   165→      color: colors[i % colors.length],
+   166→    }));
+   167→    stableSeed.current = 1;
+   168→    setVisible(true);
+   169→    if (timerRef.current) clearTimeout(timerRef.current);
+   170→    timerRef.current = setTimeout(() => {
+   171→      setVisible(false);
+   172→      stableSeed.current = 0;
+   173→    }, 900);
+   174→  } else if (!active) {
+   175→    stableSeed.current = 0;
+   176→  }
+   177→
+   178→  if (!visible) return null;
+   179→
+   180→  return (
+   181→    <div className="absolute inset-0 pointer-events-none overflow-visible">
+   182→      {particlesRef.current.map(p => (
+   183→        <div
+   184→          key={p.id}
+   185→          className="absolute w-1.5 h-1.5 rounded-full particle"
+   186→          style={{
+   187→            left: '50%',
+   188→            top: '50%',
+   189→            background: p.color,
+   190→            boxShadow: `0 0 6px ${p.color}`,
+   191→            '--tx': `${p.x}px`,
+   192→            '--ty': `${p.y}px`,
+   193→          } as React.CSSProperties}
+   194→        />
+   195→      ))}
+   196→    </div>
+   197→  );
+   198→}
+   199→
+   200→/** A single resource mini-chip */
+   201→function ResourceChip({
+   202→  type,
+   203→  amount,
+   204→  size = 'sm',
+   205→}: {
+   206→  type: ResourceType;
+   207→  amount: number;
+   208→  size?: 'sm' | 'xs';
+   209→}) {
+   210→  const config = RESOURCE_CONFIG[type];
+   211→  const Icon = ICON_MAP[config.icon];
+   212→  const isSm = size === 'sm';
+   213→  return (
+   214→    <div className="flex items-center gap-1">
+   215→      {Icon && <Icon className={isSm ? 'w-3 h-3' : 'w-2.5 h-2.5'} style={{ color: config.color }} />}
+   216→      <span
+   217→        className={`font-mono ${isSm ? 'text-[10px]' : 'text-[9px]'}`}
+   218→        style={{ color: config.color }}
+   219→      >
+   220→        +{formatNumber(amount)}/м
+   221→      </span>
+   222→    </div>
+   223→  );
+   224→}
+   225→
+   226→/** Cost display */
+   227→function CostDisplay({ cost }: { cost: Partial<Record<ResourceType, number>> }) {
+   228→  return (
+   229→    <div className="flex flex-wrap gap-1.5">
+   230→      {Object.entries(cost).map(([res, val]) => {
+   231→        if (!val) return null;
+   232→        const config = RESOURCE_CONFIG[res as ResourceType];
+   233→        const Icon = ICON_MAP[config.icon];
+   234→        return (
+   235→          <div key={res} className="flex items-center gap-0.5">
+   236→            {Icon && <Icon className="w-3 h-3" style={{ color: config.color }} />}
+   237→            <span className="text-[10px] font-mono" style={{ color: config.color }}>
+   238→              {formatNumber(val)}
+   239→            </span>
+   240→          </div>
+   241→        );
+   242→      })}
+   243→    </div>
+   244→  );
+   245→}
+   246→
+   247→// ============================================
+   248→// Module Card
+   249→// ============================================
+   250→function ModuleCard({ mod, index }: { mod: StationModule; index: number }) {
+   251→  const def = MODULE_DEFS.find(d => d.id === mod.defId);
+   252→  const selectedModule = useGameStore(s => s.selectedModule);
+   253→  const selectModule = useGameStore(s => s.selectModule);
+   254→  const upgradeModule = useGameStore(s => s.upgradeModule);
+   255→  const speedUpBuild = useGameStore(s => s.speedUpBuild);
+   256→  const collectResource = useGameStore(s => s.collectResource);
+   257→  const getModuleCost = useGameStore(s => s.getModuleCost);
+   258→  const canAfford = useGameStore(s => s.canAfford);
+   259→  const lastCollectionTimes = useGameStore(s => s.lastCollectionTimes);
+   260→  const setNotification = useGameStore(s => s.setNotification);
+   261→
+   262→  const [particleActive, setParticleActive] = useState(false);
+   263→  const [, forceUpdate] = useState(0);
+   264→  const timerRef = useRef<ReturnType<typeof setInterval>>();
+   265→
+   266→  // Re-render every second to keep collection cooldown fresh
+   267→  useEffect(() => {
+   268→    timerRef.current = setInterval(() => forceUpdate(v => v + 1), 1000);
+   269→    return () => {
+   270→      if (timerRef.current) clearInterval(timerRef.current);
+   271→    };
+   272→  }, []);
+   273→
+   274→  const handleCollect = useCallback(() => {
+   275→    const result = collectResource(mod.id);
+   276→    if (result.success) {
+   277→      setParticleActive(true);
+   278→      setNotification(result.message);
+   279→    } else {
+   280→      setNotification(result.message);
+   281→    }
+   282→  }, [collectResource, mod.id, setNotification]);
+   283→
+   284→  const handleUpgrade = useCallback(() => {
+   285→    const result = upgradeModule(mod.id);
+   286→    setNotification(result.message);
+   287→  }, [upgradeModule, mod.id, setNotification]);
+   288→
+   289→  const handleSpeedUp = useCallback(() => {
+   290→    const result = speedUpBuild(mod.id);
+   291→    setNotification(result.message);
+   292→  }, [speedUpBuild, mod.id, setNotification]);
+   293→
+   294→  if (!def) return null;
+   295→
+   296→  const production = calculateModuleProduction(mod);
+   297→  const hasProd = hasProduction(mod);
+   298→  const lastCol = lastCollectionTimes[mod.id] || 0;
+   299→  const canCollect = hasProd && !mod.building && Date.now() - lastCol >= COLLECTION_COOLDOWN;
+   300→  const collectCooldownLeft = hasProd && !mod.building ? Math.max(0, COLLECTION_COOLDOWN - (Date.now() - lastCol)) : 0;
+   301→  const upgradeCost = mod.level < def.maxLevel ? getModuleCost(mod.defId, mod.level + 1) : null;
+   302→  const canUpgrade = upgradeCost ? canAfford(upgradeCost) : false;
+   303→  const healthRatio = mod.maxHealth > 0 ? mod.health / mod.maxHealth : 1;
+   304→  const glowIntensity = getModuleGlowIntensity(mod.level, def.maxLevel);
+   305→  const isSelected = selectedModule === mod.id;
+   306→  const Icon = ICON_MAP[def.icon];
+   307→  const typeName = MODULE_TYPE_NAMES[def.type] || def.type;
+   308→
+   309→  return (
+   310→    <motion.div
+   311→      layout
+   312→      initial={{ opacity: 0, y: 20, scale: 0.95 }}
+   313→      animate={{ opacity: 1, y: 0, scale: 1 }}
+   314→      exit={{ opacity: 0, y: -10, scale: 0.95 }}
+   315→      transition={{ delay: index * 0.06, duration: 0.35, ease: [0.25, 0.46, 0.45, 0.94] }}
+   316→      className={`relative rounded-xl overflow-hidden cursor-pointer transition-all duration-300 ${
+   317→        isSelected ? 'ring-2 ring-neon-cyan/60' : ''
+   318→      }`}
+   319→      style={{
+   320→        background: 'rgba(15, 15, 35, 0.85)',
+   321→        border: '1px solid rgba(0, 240, 255, 0.25)',
+   322→        boxShadow: `0 0 ${glowIntensity * 40}px rgba(0, 240, 255, ${glowIntensity}), inset 0 0 ${glowIntensity * 20}px rgba(0, 240, 255, ${glowIntensity * 0.3})`,
+   323→      }}
+   324→      onClick={() => selectModule(isSelected ? null : mod.id)}
+   325→    >
+   326→      {/* Glow intensity overlay for higher levels */}
+   327→      {mod.level >= 5 && (
+   328→        <div
+   329→          className="absolute inset-0 pointer-events-none rounded-xl module-glow"
+   330→          style={{
+   331→            background: `radial-gradient(ellipse at 50% 0%, rgba(0, 240, 255, ${glowIntensity * 0.15}) 0%, transparent 70%)`,
+   332→          }}
+   333→        />
+   334→      )}
+   335→
+   336→      <div className="relative p-3">
+   337→        {/* Header row: Icon + Name + Level */}
+   338→        <div className="flex items-start gap-2.5 mb-2">
+   339→          {/* Icon */}
+   340→          <div
+   341→            className="flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center"
+   342→            style={{
+   343→              background: mod.building
+   344→                ? 'rgba(0, 240, 255, 0.08)'
+   345→                : `rgba(0, 240, 255, ${0.06 + glowIntensity * 0.1})`,
+   346→              border: `1px solid rgba(0, 240, 255, ${0.15 + glowIntensity * 0.2})`,
+   347→            }}
+   348→          >
+   349→            {Icon && (
+   350→              <Icon
+   351→                className="w-5 h-5"
+   352→                style={{ color: mod.building ? 'rgba(0, 240, 255, 0.5)' : '#00f0ff' }}
+   353→              />
+   354→            )}
+   355→          </div>
+   356→          <div className="flex-1 min-w-0">
+   357→            <div className="flex items-center gap-1.5">
+   358→              <h3 className="text-sm font-semibold text-foreground truncate leading-tight">
+   359→                {def.name}
+   360→              </h3>
+   361→              <Badge
+   362→                className="flex-shrink-0 text-[9px] px-1.5 py-0 font-mono font-bold"
+   363→                style={{
+   364→                  background: mod.level >= 7
+   365→                    ? 'linear-gradient(135deg, rgba(168, 85, 247, 0.3), rgba(0, 240, 255, 0.3))'
+   366→                    : mod.level >= 4
+   367→                      ? 'rgba(0, 240, 255, 0.2)'
+   368→                      : 'rgba(0, 240, 255, 0.1)',
+   369→                  color: mod.level >= 7 ? '#c084fc' : '#00f0ff',
+   370→                  borderColor: mod.level >= 7 ? 'rgba(168, 85, 247, 0.4)' : 'rgba(0, 240, 255, 0.3)',
+   371→                  textShadow: '0 0 8px currentColor',
+   372→                }}
+   373→              >
+   374→                Ур. {mod.level}
+   375→              </Badge>
+   376→            </div>
+   377→            <span className="text-[10px] text-muted-foreground font-mono">{typeName}</span>
+   378→          </div>
+   379→        </div>
+   380→
+   381→        {/* Production rates */}
+   382→        {hasProd && !mod.building && Object.keys(production).length > 0 && (
+   383→          <div className="flex flex-wrap gap-2 mb-2 px-0.5">
+   384→            {(Object.entries(production) as [ResourceType, number][]).map(([res, rate]) =>
+   385→              rate ? <ResourceChip key={res} type={res} amount={rate} /> : null,
+   386→            )}
+   387→          </div>
+   388→        )}
+   389→
+   390→        {/* Health bar */}
+   391→        {!mod.building && (
+   392→          <div className="flex items-center gap-2 mb-2">
+   393→            <div className="flex-1 h-1 rounded-full bg-white/5 overflow-hidden">
+   394→              <div
+   395→                className="h-full rounded-full transition-all duration-500"
+   396→                style={{
+   397→                  width: `${healthRatio * 100}%`,
+   398→                  background: getHealthColor(healthRatio),
+   399→                }}
+   400→              />
+   401→            </div>
+   402→            <span className="text-[8px] font-mono text-muted-foreground w-8 text-right">
+   403→              {mod.health}/{mod.maxHealth}
+   404→            </span>
+   405→          </div>
+   406→        )}
+   407→
+   408→        {/* Building progress */}
+   409→        {mod.building && mod.buildStartTime && mod.buildEndTime && (
+   410→          <div className="mb-2">
+   411→            <BuildProgressBar startTime={mod.buildStartTime} endTime={mod.buildEndTime} />
+   412→          </div>
+   413→        )}
+   414→
+   415→        {/* Expanded details when selected */}
+   416→        <AnimatePresence>
+   417→          {isSelected && (
+   418→            <motion.div
+   419→              initial={{ height: 0, opacity: 0 }}
+   420→              animate={{ height: 'auto', opacity: 1 }}
+   421→              exit={{ height: 0, opacity: 0 }}
+   422→              transition={{ duration: 0.25 }}
+   423→              className="overflow-hidden"
+   424→            >
+   425→              <div className="pt-2 border-t border-white/5">
+   426→                <p className="text-[11px] text-muted-foreground leading-relaxed mb-2">{def.description}</p>
+   427→                <div className="flex items-center gap-1 text-[10px] text-muted-foreground mb-2">
+   428→                  <Heart className="w-3 h-3" />
+   429→                  <span>Здоровье: {mod.health}/{mod.maxHealth}</span>
+   430→                  {def.maxLevel > 1 && (
+   431→                    <span className="ml-2">
+   432→                      <ArrowUpCircle className="w-3 h-3 inline mr-0.5" />
+   433→                      Макс. ур.: {def.maxLevel}
+   434→                    </span>
+   435→                  )}
+   436→                </div>
+   437→              </div>
+   438→            </motion.div>
+   439→          )}
+   440→        </AnimatePresence>
+   441→
+   442→        {/* Action buttons */}
+   443→        <div className="flex items-center gap-1.5 mt-1">
+   444→          {/* Collect button */}
+   445→          {hasProd && !mod.building && (
+   446→            <motion.button
+   447→              whileTap={{ scale: 0.92 }}
+   448→              onClick={e => {
+   449→                e.stopPropagation();
+   450→                handleCollect();
+   451→              }}
+   452→              disabled={!canCollect}
+   453→              className={`relative holo-btn flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[10px] font-medium transition-all ${
+   454→                canCollect
+   455→                  ? 'text-neon-cyan'
+   456→                  : 'text-muted-foreground/50 cursor-not-allowed'
+   457→              } ${canCollect ? 'glow-pulse' : ''}`}
+   458→              style={{
+   459→                background: canCollect ? 'rgba(0, 240, 255, 0.1)' : 'rgba(255, 255, 255, 0.03)',
+   460→                border: `1px solid ${canCollect ? 'rgba(0, 240, 255, 0.4)' : 'rgba(255, 255, 255, 0.05)'}`,
+   461→              }}
+   462→            >
+   463→              <ParticleBurst active={particleActive} />
+   464→              <HandCoins className="w-3.5 h-3.5" />
+   465→              {canCollect ? 'Собрать' : formatTime(collectCooldownLeft)}
+   466→            </motion.button>
+   467→          )}
+   468→
+   469→          {/* Upgrade button */}
+   470→          {!mod.building && mod.level < def.maxLevel && upgradeCost && (
+   471→            <motion.button
+   472→              whileTap={{ scale: 0.92 }}
+   473→              onClick={e => {
+   474→                e.stopPropagation();
+   475→                handleUpgrade();
+   476→              }}
+   477→              disabled={!canUpgrade}
+   478→              className={`holo-btn flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[10px] font-medium transition-all ${
+   479→                canUpgrade ? 'text-amber-300' : 'text-muted-foreground/50 cursor-not-allowed'
+   480→              }`}
+   481→              style={{
+   482→                background: canUpgrade ? 'rgba(251, 191, 36, 0.1)' : 'rgba(255, 255, 255, 0.03)',
+   483→                border: `1px solid ${canUpgrade ? 'rgba(251, 191, 36, 0.4)' : 'rgba(255, 255, 255, 0.05)'}`,
+   484→              }}
+   485→            >
+   486→              <ArrowUpCircle className="w-3.5 h-3.5" />
+   487→              {Object.entries(upgradeCost).map(([res, val]) => {
+   488→                const config = RESOURCE_CONFIG[res as ResourceType];
+   489→                const Icon = ICON_MAP[config.icon];
+   490→                return Icon ? (
+   491→                  <span key={res} className="flex items-center gap-0.5" style={{ color: canUpgrade ? config.color : undefined }}>
+   492→                    <Icon className="w-2.5 h-2.5" />
+   493→                    {formatNumber(val!)}
+   494→                  </span>
+   495→                ) : null;
+   496→              })}
+   497→            </motion.button>
+   498→          )}
+   499→
+   500→          {/* Speed Up button */}
+   501→          {mod.building && (
+   502→            <motion.button
+   503→              whileTap={{ scale: 0.92 }}
+   504→              onClick={e => {
+   505→                e.stopPropagation();
+   506→                handleSpeedUp();
+   507→              }}
+   508→              className="holo-btn flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[10px] font-medium text-neon-purple"
+   509→              style={{
+   510→                background: 'rgba(168, 85, 247, 0.1)',
+   511→                border: '1px solid rgba(168, 85, 247, 0.4)',
+   512→              }}
+   513→            >
+   514→              <Timer className="w-3.5 h-3.5" />
+   515→              Мгновенно
+   516→            </motion.button>
+   517→          )}
+   518→
+   519→          {/* Max level indicator */}
+   520→          {mod.level >= def.maxLevel && !mod.building && (
+   521→            <div className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-[10px] font-medium text-amber-300/60">
+   522→              <span className="font-mono">МАКС</span>
+   523→            </div>
+   524→          )}
+   525→        </div>
+   526→      </div>
+   527→    </motion.div>
+   528→  );
+   529→}
+   530→
+   531→// ============================================
+   532→// Empty Slot Card
+   533→// ============================================
+   534→function EmptySlotCard({ onClick, index }: { onClick: () => void; index: number }) {
+   535→  return (
+   536→    <motion.div
+   537→      layout
+   538→      initial={{ opacity: 0, scale: 0.9 }}
+   539→      animate={{ opacity: 1, scale: 1 }}
+   540→      exit={{ opacity: 0, scale: 0.9 }}
+   541→      transition={{ delay: index * 0.05, duration: 0.3 }}
+   542→      onClick={onClick}
+   543→      className="rounded-xl flex flex-col items-center justify-center gap-2 cursor-pointer h-[140px] transition-all duration-300 group"
+   544→      style={{
+   545→        background: 'rgba(15, 15, 35, 0.4)',
+   546→        border: '1px dashed rgba(0, 240, 255, 0.15)',
+   547→      }}
+   548→    >
+   549→      <motion.div
+   550→        whileHover={{ scale: 1.15, rotate: 90 }}
+   551→        whileTap={{ scale: 0.9 }}
+   552→        className="w-10 h-10 rounded-full flex items-center justify-center transition-colors duration-300"
+   553→        style={{
+   554→          background: 'rgba(0, 240, 255, 0.05)',
+   555→          border: '1px solid rgba(0, 240, 255, 0.2)',
+   556→        }}
+   557→      >
+   558→        <Plus className="w-5 h-5 text-neon-cyan/40 group-hover:text-neon-cyan transition-colors" />
+   559→      </motion.div>
+   560→      <span className="text-[10px] text-muted-foreground/40 group-hover:text-muted-foreground/70 font-mono transition-colors">
+   561→        Построить
+   562→      </span>
+   563→    </motion.div>
+   564→  );
+   565→}
+   566→
+   567→// ============================================
+   568→// Build Menu
+   569→// ============================================
+   570→const BUILD_TABS: { value: string; label: string; types: ModuleType[] }[] = [
+   571→  { value: 'all', label: 'Все', types: [] },
+   572→  { value: 'mining', label: 'Добыча', types: ['mining'] },
+   573→  { value: 'processing', label: 'Переработка', types: ['processing'] },
+   574→  { value: 'defense', label: 'Оборона', types: ['defense'] },
+   575→  { value: 'research', label: 'Наука', types: ['research'] },
+   576→  { value: 'habitat', label: 'Жилые', types: ['habitat'] },
+   577→  { value: 'hangar', label: 'Ангар', types: ['hangar'] },
+   578→];
+   579→
+   580→function BuildMenuItem({ def, onBuild }: { def: typeof MODULE_DEFS[0]; onBuild: () => void }) {
+   581→  const getModuleCost = useGameStore(s => s.getModuleCost);
+   582→  const canAfford = useGameStore(s => s.canAfford);
+   583→  const cost = getModuleCost(def.id, 1);
+   584→  const affordable = canAfford(cost);
+   585→  const Icon = ICON_MAP[def.icon];
+   586→
+   587→  return (
+   588→    <motion.div
+   589→      initial={{ opacity: 0, x: 10 }}
+   590→      animate={{ opacity: 1, x: 0 }}
+   591→      className="flex items-start gap-3 p-3 rounded-lg transition-colors duration-200"
+   592→      style={{
+   593→        background: 'rgba(0, 240, 255, 0.03)',
+   594→        border: '1px solid rgba(0, 240, 255, 0.08)',
+   595→      }}
+   596→    >
+   597→      <div
+   598→        className="flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center"
+   599→        style={{
+   600→          background: 'rgba(0, 240, 255, 0.08)',
+   601→          border: '1px solid rgba(0, 240, 255, 0.2)',
+   602→        }}
+   603→      >
+   604→        {Icon && <Icon className="w-5 h-5 text-neon-cyan" />}
+   605→      </div>
+   606→      <div className="flex-1 min-w-0">
+   607→        <div className="flex items-center justify-between gap-2">
+   608→          <h4 className="text-sm font-semibold text-foreground truncate">{def.name}</h4>
+   609→          <span className="text-[9px] font-mono text-muted-foreground flex-shrink-0">
+   610→            {MODULE_TYPE_NAMES[def.type]}
+   611→          </span>
+   612→        </div>
+   613→        <p className="text-[10px] text-muted-foreground leading-relaxed mt-0.5 line-clamp-2">
+   614→          {def.description}
+   615→        </p>
+   616→        <div className="flex items-center justify-between mt-2">
+   617→          <CostDisplay cost={cost} />
+   618→          <motion.button
+   619→            whileTap={{ scale: 0.92 }}
+   620→            onClick={e => {
+   621→              e.stopPropagation();
+   622→              onBuild();
+   623→            }}
+   624→            disabled={!affordable}
+   625→            className={`holo-btn flex items-center gap-1 px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all ${
+   626→              affordable ? 'text-neon-cyan' : 'text-muted-foreground/40 cursor-not-allowed'
+   627→            }`}
+   628→            style={{
+   629→              background: affordable ? 'rgba(0, 240, 255, 0.1)' : 'rgba(255, 255, 255, 0.03)',
+   630→              border: `1px solid ${affordable ? 'rgba(0, 240, 255, 0.4)' : 'rgba(255, 255, 255, 0.05)'}`,
+   631→            }}
+   632→          >
+   633→            <Hammer className="w-3 h-3" />
+   634→            Построить
+   635→          </motion.button>
+   636→        </div>
+   637→      </div>
+   638→    </motion.div>
+   639→  );
+   640→}
+   641→
+   642→function BuildMenu({ open, onClose }: { open: boolean; onClose: () => void }) {
+   643→  const [activeTab, setActiveTab] = useState('all');
+   644→  const buildModule = useGameStore(s => s.buildModule);
+   645→  const setNotification = useGameStore(s => s.setNotification);
+   646→  const modules = useGameStore(s => s.modules);
+   647→
+   648→  const handleBuild = useCallback(
+   649→    (defId: string) => {
+   650→      const result = buildModule(defId);
+   651→      setNotification(result.message);
+   652→      if (result.success) onClose();
+   653→    },
+   654→    [buildModule, setNotification, onClose],
+   655→  );
+   656→
+   657→  const filteredDefs = useMemo(() => {
+   658→    const tab = BUILD_TABS.find(t => t.value === activeTab);
+   659→    if (!tab || tab.types.length === 0) return MODULE_DEFS;
+   660→    return MODULE_DEFS.filter(d => tab.types.includes(d.type));
+   661→  }, [activeTab]);
+   662→
+   663→  return (
+   664→    <Sheet open={open} onOpenChange={v => !v && onClose()}>
+   665→      <SheetContent
+   666→        side="bottom"
+   667→        className="rounded-t-2xl border-t border-white/10 p-0 max-h-[85vh]"
+   668→        style={{ background: 'rgba(10, 10, 26, 0.97)', backdropFilter: 'blur(20px)' }}
+   669→      >
+   670→        <SheetHeader className="px-4 pt-4 pb-2">
+   671→          <SheetTitle className="text-base font-bold neon-text-cyan text-center">
+   672→            <Hammer className="w-4 h-4 inline mr-1.5 -mt-0.5" />
+   673→            Построить модуль
+   674→          </SheetTitle>
+   675→          <SheetDescription className="text-center text-[11px] text-muted-foreground">
+   676→            Выберите модуль для строительства на станции
+   677→          </SheetDescription>
+   678→        </SheetHeader>
+   679→
+   680→        {/* Type tabs */}
+   681→        <div className="px-3 pb-2">
+   682→          <Tabs value={activeTab} onValueChange={setActiveTab}>
+   683→            <TabsList className="w-full h-8 bg-white/5 p-0.5 overflow-x-auto scrollbar-none">
+   684→              {BUILD_TABS.map(tab => (
+   685→                <TabsTrigger
+   686→                  key={tab.value}
+   687→                  value={tab.value}
+   688→                  className="text-[10px] font-mono px-2.5 py-1 flex-shrink-0 data-[state=active]:bg-neon-cyan/10 data-[state=active]:text-neon-cyan data-[state=active]:border data-[state=active]:border-neon-cyan/30 rounded-md"
+   689→                >
+   690→                  {tab.label}
+   691→                </TabsTrigger>
+   692→              ))}
+   693→            </TabsList>
+   694→          </Tabs>
+   695→        </div>
+   696→
+   697→        {/* Module list */}
+   698→        <ScrollArea className="max-h-[55vh] px-3 pb-6">
+   699→          <div className="flex flex-col gap-2 pt-1">
+   700→            <AnimatePresence mode="popLayout">
+   701→              {filteredDefs.map(def => (
+   702→                <BuildMenuItem key={def.id} def={def} onBuild={() => handleBuild(def.id)} />
+   703→              ))}
+   704→            </AnimatePresence>
+   705→            {filteredDefs.length === 0 && (
+   706→              <div className="text-center py-8 text-muted-foreground text-sm">
+   707→                Нет модулей этой категории
+   708→              </div>
+   709→            )}
+   710→          </div>
+   711→        </ScrollArea>
+   712→      </SheetContent>
+   713→    </Sheet>
+   714→  );
+   715→}
+   716→
+   717→// ============================================
+   718→// Room Card
+   719→// ============================================
+   720→function RoomCard({ room }: { room: typeof ROOM_DEFS[0] }) {
+   721→  const setRoom = useGameStore(s => s.setRoom);
+   722→  const unlockedRooms = useGameStore(s => s.unlockedRooms);
+   723→  const isUnlocked = unlockedRooms.includes(room.id);
+   724→  const Icon = ICON_MAP[room.icon];
+   725→
+   726→  return (
+   727→    <motion.button
+   728→      whileTap={{ scale: 0.97 }}
+   729→      onClick={() => {
+   730→        if (isUnlocked) setRoom(room.id);
+   731→      }}
+   732→      className={`relative text-left rounded-xl overflow-hidden transition-all duration-300 ${
+   733→        isUnlocked ? 'holo-btn cursor-pointer' : 'cursor-default'
+   734→      }`}
+   735→      style={{
+   736→        background: isUnlocked
+   737→          ? `linear-gradient(135deg, ${room.bgColor.replace('/80', '/40')}, rgba(15, 15, 35, 0.6))`
+   738→          : 'rgba(15, 15, 35, 0.4)',
+   739→        border: `1px solid ${isUnlocked ? room.accentColor + '40' : 'rgba(255,255,255,0.05)'}`,
+   740→        boxShadow: isUnlocked ? `0 0 15px ${room.accentColor}15` : 'none',
+   741→      }}
+   742→    >
+   743→      <div className="p-3">
+   744→        <div className="flex items-center gap-2.5 mb-1.5">
+   745→          <div
+   746→            className="w-8 h-8 rounded-lg flex items-center justify-center"
+   747→            style={{
+   748→              background: isUnlocked ? room.accentColor + '20' : 'rgba(255,255,255,0.03)',
+   749→              border: `1px solid ${isUnlocked ? room.accentColor + '30' : 'rgba(255,255,255,0.05)'}`,
+   750→            }}
+   751→          >
+   752→            {isUnlocked ? (
+   753→              Icon ? (
+   754→                <Icon className="w-4 h-4" style={{ color: room.accentColor }} />
+   755→              ) : null
+   756→            ) : (
+   757→              <Lock className="w-4 h-4 text-muted-foreground/40" />
+   758→            )}
+   759→          </div>
+   760→          <div className="flex-1 min-w-0">
+   761→            <h4
+   762→              className={`text-xs font-semibold truncate ${isUnlocked ? '' : 'text-muted-foreground/40'}`}
+   763→              style={isUnlocked ? { color: room.accentColor } : undefined}
+   764→            >
+   765→              {room.name}
+   766→            </h4>
+   767→          </div>
+   768→          {isUnlocked && <ChevronRight className="w-4 h-4 text-muted-foreground/50 flex-shrink-0" />}
+   769→        </div>
+   770→        <p
+   771→          className={`text-[10px] leading-relaxed line-clamp-2 ${isUnlocked ? 'text-muted-foreground' : 'text-muted-foreground/30'}`}
+   772→        >
+   773→          {isUnlocked ? room.description : 'Заблокировано'}
+   774→        </p>
+   775→        {/* Unlock cost for locked rooms */}
+   776→        {!isUnlocked && room.unlockCost && (
+   777→          <div className="mt-1.5 flex flex-wrap gap-1">
+   778→            {(Object.entries(room.unlockCost) as [ResourceType, number][]).map(([res, val]) => {
+   779→              const config = RESOURCE_CONFIG[res];
+   780→              const RIcon = ICON_MAP[config.icon];
+   781→              return (
+   782→                <span key={res} className="flex items-center gap-0.5 text-[9px] font-mono text-muted-foreground/40">
+   783→                  {RIcon && <RIcon className="w-2.5 h-2.5" />}
+   784→                  {formatNumber(val)}
+   785→                </span>
+   786→              );
+   787→            })}
+   788→          </div>
+   789→        )}
+   790→      </div>
+   791→      {/* Accent line at top */}
+   792→      {isUnlocked && (
+   793→        <div
+   794→          className="absolute top-0 left-0 right-0 h-0.5"
+   795→          style={{ background: `linear-gradient(90deg, transparent, ${room.accentColor}60, transparent)` }}
+   796→        />
+   797→      )}
+   798→    </motion.button>
+   799→  );
+   800→}
+   801→
+   802→// ============================================
+   803→// Main StationView Component
+   804→// ============================================
+   805→export default function StationView() {
+   806→  const modules = useGameStore(s => s.modules);
+   807→  const moduleSlots = useGameStore(s => s.moduleSlots);
+   808→  const stationLevel = useGameStore(s => s.stationLevel);
+   809→  const stationName = useGameStore(s => s.stationName);
+   810→  const unlockedRooms = useGameStore(s => s.unlockedRooms);
+   811→
+   812→  const [buildMenuOpen, setBuildMenuOpen] = useState(false);
+   813→  const [, setTick] = useState(0);
+   814→
+   815→  // Force re-render every second for build timers & cooldowns
+   816→  useEffect(() => {
+   817→    const id = setInterval(() => setTick(v => v + 1), 1000);
+   818→    return () => clearInterval(id);
+   819→  }, []);
+   820→
+   821→  const emptySlots = Math.max(0, moduleSlots - modules.length);
+   822→  const buildingCount = modules.filter(m => m.building).length;
+   823→
+   824→  return (
+   825→    <section className="relative z-10 flex flex-col min-h-[calc(100vh-120px)] pb-24">
+   826→      {/* Station Header */}
+   827→      <motion.header
+   828→        initial={{ opacity: 0, y: -10 }}
+   829→        animate={{ opacity: 1, y: 0 }}
+   830→        className="px-3 pt-2 pb-3"
+   831→      >
+   832→        <div className="flex items-center justify-between mb-1">
+   833→          <div className="flex items-center gap-2">
+   834→            <div className="w-8 h-8 rounded-lg flex items-center justify-center neon-border"
+   835→              style={{ background: 'rgba(0, 240, 255, 0.06)' }}
+   836→            >
+   837→              <Orbit className="w-4 h-4 text-neon-cyan" />
+   838→            </div>
+   839→            <div>
+   840→              <h1 className="text-base font-bold neon-text-cyan leading-tight">{stationName}</h1>
+   841→              <div className="flex items-center gap-2">
+   842→                <span className="text-[10px] font-mono text-muted-foreground">
+   843→                  Уровень {stationLevel}
+   844→                </span>
+   845→                {buildingCount > 0 && (
+   846→                  <span className="flex items-center gap-0.5 text-[9px] font-mono text-amber-300">
+   847→                    <Timer className="w-2.5 h-2.5" />
+   848→                    {buildingCount} стр.
+   849→                  </span>
+   850→                )}
+   851→              </div>
+   852→            </div>
+   853→          </div>
+   854→          <div className="text-right">
+   855→            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg neon-border"
+   856→              style={{ background: 'rgba(10, 10, 30, 0.9)' }}
+   857→            >
+   858→              <BoxesIcon className="w-3.5 h-3.5 text-neon-cyan" />
+   859→              <span className="text-xs font-mono font-bold text-foreground">
+   860→                {modules.length}
+   861→              </span>
+   862→              <span className="text-[10px] font-mono text-muted-foreground">
+   863→                /{moduleSlots}
+   864→              </span>
+   865→            </div>
+   866→            <span className="text-[9px] font-mono text-muted-foreground mt-0.5 block">
+   867→              модулей
+   868→            </span>
+   869→          </div>
+   870→        </div>
+   871→      </motion.header>
+   872→
+   873→      {/* Module Grid */}
+   874→      <div className="px-3 flex-1">
+   875→        <motion.div
+   876→          layout
+   877→          className="grid grid-cols-2 md:grid-cols-3 gap-2.5"
+   878→        >
+   879→          <AnimatePresence mode="popLayout">
+   880→            {modules.map((mod, i) => (
+   881→              <ModuleCard key={mod.id} mod={mod} index={i} />
+   882→            ))}
+   883→            {emptySlots > 0 &&
+   884→              Array.from({ length: emptySlots }, (_, i) => (
+   885→                <EmptySlotCard
+   886→                  key={`empty-${i}`}
+   887→                  index={modules.length + i}
+   888→                  onClick={() => setBuildMenuOpen(true)}
+   889→                />
+   890→              ))}
+   891→          </AnimatePresence>
+   892→        </motion.div>
+   893→
+   894→        {/* Room Navigation Section */}
+   895→        {ROOM_DEFS.length > 0 && (
+   896→          <motion.div
+   897→            initial={{ opacity: 0, y: 15 }}
+   898→            animate={{ opacity: 1, y: 0 }}
+   899→            transition={{ delay: 0.3, duration: 0.4 }}
+   900→            className="mt-6 mb-4"
+   901→          >
+   902→            <div className="flex items-center gap-2 mb-3">
+   903→              <div className="h-px flex-1 bg-gradient-to-r from-transparent via-white/10 to-transparent" />
+   904→              <h2 className="text-[11px] font-mono font-bold text-muted-foreground tracking-widest uppercase">
+   905→                Помещения станции
+   906→              </h2>
+   907→              <div className="h-px flex-1 bg-gradient-to-r from-transparent via-white/10 to-transparent" />
+   908→            </div>
+   909→            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+   910→              {ROOM_DEFS.map(room => (
+   911→                <RoomCard key={room.id} room={room} />
+   912→              ))}
+   913→            </div>
+   914→          </motion.div>
+   915→        )}
+   916→      </div>
+   917→
+   918→      {/* Build Menu Sheet */}
+   919→      <BuildMenu open={buildMenuOpen} onClose={() => setBuildMenuOpen(false)} />
+   920→    </section>
+   921→  );
+   922→}
