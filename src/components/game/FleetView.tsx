@@ -846,7 +846,7 @@ export default function FleetView() {
               {/* Ships section */}
               <section>
                 <h3 className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                  <Ship className="w-3.5 h-3.5 text-neon-cyan" />
+                  <ShipIcon className="w-3.5 h-3.5 text-neon-cyan" />
                   Ваши корабли
                 </h3>
                 {ownedShips.length > 0 ? (

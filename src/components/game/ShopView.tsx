@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useGameStore } from '@/lib/game/store';
 import { SHOP_ITEMS } from '@/lib/game/constants';
@@ -8,7 +8,6 @@ import type { ShopItem } from '@/lib/game/types';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Star,
   Clock,
@@ -26,8 +25,51 @@ import {
   Radar,
   Shield,
   Info,
+  Send,
+  Heart,
+  Crown,
+  Gem,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { isTelegramWebApp, openStarsInvoice, getTelegramUser, hapticFeedback } from '@/lib/telegram';
+
+// ============================================
+// Telegram Stars Donation Tiers
+// ============================================
+const STARS_DONATION_TIERS = [
+  {
+    id: 'support',
+    name: 'Поддержка',
+    stars: 1,
+    description: 'Спасибо за поддержку!',
+    icon: Heart,
+    color: '#22c55e',
+  },
+  {
+    id: 'ally',
+    name: 'Союзник',
+    stars: 5,
+    description: 'Вы получаете 5000 минералов',
+    icon: Send,
+    color: '#00f0ff',
+  },
+  {
+    id: 'patron',
+    name: 'Покровитель',
+    stars: 25,
+    description: '5000 энергии + 5000 минералов + 100 кристаллов',
+    icon: Gem,
+    color: '#a855f7',
+  },
+  {
+    id: 'legend',
+    name: 'Легенда',
+    stars: 100,
+    description: 'Премиум на 7 дней + все ресурсы по 10000',
+    icon: Crown,
+    color: '#fbbf24',
+  },
+];
 
 // Icon mapping for shop items
 const ICON_MAP: Record<string, React.ComponentType<{ className?: string; style?: React.CSSProperties }>> = {
@@ -57,11 +99,58 @@ export default function ShopView() {
   const buyShopItem = useGameStore(s => s.buyShopItem);
 
   const [activeCategory, setActiveCategory] = useState('all');
+  const [purchasingTier, setPurchasingTier] = useState<string | null>(null);
 
   const filteredItems = useMemo(() => {
     if (activeCategory === 'all') return SHOP_ITEMS;
     return SHOP_ITEMS.filter(item => item.category === activeCategory);
   }, [activeCategory]);
+
+  // Listen for successful Stars payment dispatched from page.tsx
+  useEffect(() => {
+    const handlePayment = (event: Event) => {
+      const payload = (event as CustomEvent).detail as string | undefined;
+      if (!payload || !payload.includes(':')) return;
+
+      const [itemId] = payload.split(':');
+      hapticFeedback('success');
+
+      // Credit resources based on the donation tier
+      const state = useGameStore.getState();
+      const res = { ...state.resources };
+
+      switch (itemId) {
+        case 'support':
+          toast.success('🌟 Спасибо за вашу поддержку!');
+          break;
+        case 'ally':
+          res.minerals += 5000;
+          useGameStore.setState({ resources: res });
+          toast.success('🚀 +5000 минералов получено!');
+          break;
+        case 'patron':
+          res.energy += 5000;
+          res.minerals += 5000;
+          res.crystals += 100;
+          useGameStore.setState({ resources: res });
+          toast.success('💎 +5000 энергии, +5000 минералов, +100 кристаллов!');
+          break;
+        case 'legend':
+          res.energy += 10000;
+          res.minerals += 10000;
+          res.bioMatter += 10000;
+          res.crystals += 10000;
+          useGameStore.setState({ resources: res });
+          toast.success('👑 Легенда! Все ресурсы +10000! Премиум активирован!');
+          break;
+        default:
+          toast.success('✅ Оплата получена!');
+      }
+    };
+
+    window.addEventListener('telegram-stars-paid', handlePayment);
+    return () => window.removeEventListener('telegram-stars-paid', handlePayment);
+  }, []);
 
   const handleBuy = useCallback(
     (item: ShopItem) => {
@@ -74,6 +163,61 @@ export default function ShopView() {
     },
     [buyShopItem]
   );
+
+  const handleStarsDonation = useCallback(async (tierId: string) => {
+    const inTelegram = isTelegramWebApp();
+
+    if (!inTelegram) {
+      toast.error('Откройте игру через Telegram бота для доната');
+      hapticFeedback('error');
+      return;
+    }
+
+    const user = getTelegramUser();
+    if (!user) {
+      toast.error('Не удалось получить данные пользователя Telegram');
+      hapticFeedback('error');
+      return;
+    }
+
+    setPurchasingTier(tierId);
+    hapticFeedback('light');
+
+    try {
+      const res = await fetch('/api/stars/invoice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ itemId: tierId, telegramUserId: String(user.id) }),
+      });
+
+      const data = await res.json() as { url?: string; error?: string };
+
+      if (!res.ok || !data.url) {
+        toast.error(data.error || 'Ошибка создания счёта');
+        hapticFeedback('error');
+        setPurchasingTier(null);
+        return;
+      }
+
+      // Open the Stars invoice in Telegram
+      openStarsInvoice(data.url, (status) => {
+        setPurchasingTier(null);
+        if (status === 'paid') {
+          // The event listener in page.tsx will handle the actual crediting
+          console.log('[ShopView] Stars payment confirmed:', tierId);
+        } else if (status === 'cancelled') {
+          toast('Оплата отменена');
+        } else if (status === 'failed') {
+          toast.error('Оплата не удалась');
+          hapticFeedback('error');
+        }
+      });
+    } catch {
+      toast.error('Сетевая ошибка. Попробуйте снова.');
+      hapticFeedback('error');
+      setPurchasingTier(null);
+    }
+  }, []);
 
   return (
     <div className="h-full flex flex-col" style={{ background: '#0a0a1a' }}>
@@ -98,29 +242,40 @@ export default function ShopView() {
         </div>
       </div>
 
-      {/* Category Tabs */}
-      <div className="px-4 pt-3 pb-2">
-        <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-          <CategoryPill
-            label="Все"
-            active={activeCategory === 'all'}
-            onClick={() => setActiveCategory('all')}
-            color="#00f0ff"
-          />
-          {Object.entries(CATEGORY_CONFIG).map(([key, cfg]) => (
-            <CategoryPill
-              key={key}
-              label={cfg.label}
-              active={activeCategory === key}
-              onClick={() => setActiveCategory(key)}
-              color={cfg.color}
-            />
-          ))}
-        </div>
-      </div>
-
       {/* Items Grid */}
       <ScrollArea className="flex-1 px-4 pb-4">
+        {/* ===== Telegram Stars Banner ===== */}
+        <TelegramStarsBanner />
+
+        {/* ===== Telegram Stars Donation Section ===== */}
+        <TelegramStarsSection
+          tiers={STARS_DONATION_TIERS}
+          purchasingTier={purchasingTier}
+          onDonate={handleStarsDonation}
+        />
+
+        {/* ===== Category Tabs ===== */}
+        <div className="pt-3 pb-2">
+          <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+            <CategoryPill
+              label="Все"
+              active={activeCategory === 'all'}
+              onClick={() => setActiveCategory('all')}
+              color="#00f0ff"
+            />
+            {Object.entries(CATEGORY_CONFIG).map(([key, cfg]) => (
+              <CategoryPill
+                key={key}
+                label={cfg.label}
+                active={activeCategory === key}
+                onClick={() => setActiveCategory(key)}
+                color={cfg.color}
+              />
+            ))}
+          </div>
+        </div>
+
+        {/* Shop Items Grid */}
         <div className="grid grid-cols-2 gap-3 pb-4">
           <AnimatePresence mode="popLayout">
             {filteredItems.map((item, index) => {
@@ -255,6 +410,148 @@ export default function ShopView() {
         </div>
       </ScrollArea>
     </div>
+  );
+}
+
+// ============================================
+// Telegram Stars Banner
+// ============================================
+function TelegramStarsBanner() {
+  const inTelegram = isTelegramWebApp();
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -10 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="mb-3 rounded-xl px-4 py-2.5 flex items-center gap-3"
+      style={{
+        background: 'linear-gradient(135deg, rgba(34, 197, 94, 0.12) 0%, rgba(0, 240, 255, 0.08) 100%)',
+        border: '1px solid rgba(34, 197, 94, 0.25)',
+      }}
+    >
+      <div
+        className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+        style={{
+          background: 'rgba(34, 197, 94, 0.15)',
+          border: '1px solid rgba(34, 197, 94, 0.3)',
+        }}
+      >
+        <Send className="w-4 h-4" style={{ color: '#22c55e' }} />
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-xs font-bold text-foreground leading-tight">
+          💎 Донат через Telegram Stars — безопасно и удобно!
+        </p>
+        <p className="text-[10px] font-mono text-muted-foreground mt-0.5">
+          {inTelegram
+            ? 'Поддержите развитие игры и получите бонусы'
+            : 'Откройте через Telegram бота для оплаты'}
+        </p>
+      </div>
+    </motion.div>
+  );
+}
+
+// ============================================
+// Telegram Stars Donation Section
+// ============================================
+function TelegramStarsSection({
+  tiers,
+  purchasingTier,
+  onDonate,
+}: {
+  tiers: typeof STARS_DONATION_TIERS;
+  purchasingTier: string | null;
+  onDonate: (tierId: string) => void;
+}) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.1 }}
+      className="mb-4"
+    >
+      <div
+        className="rounded-xl p-4"
+        style={{
+          background: 'rgba(15, 15, 35, 0.85)',
+          border: '1px solid rgba(34, 197, 94, 0.2)',
+        }}
+      >
+        <div className="flex items-center gap-2 mb-3">
+          <Send className="w-4 h-4" style={{ color: '#22c55e' }} />
+          <h3 className="text-xs font-bold uppercase tracking-wider" style={{ color: '#22c55e' }}>
+            Telegram Stars — поддержите развитие игры!
+          </h3>
+        </div>
+
+        <div className="space-y-2">
+          {tiers.map((tier) => {
+            const Icon = tier.icon;
+            const isPurchasing = purchasingTier === tier.id;
+
+            return (
+              <motion.div
+                key={tier.id}
+                className="flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors"
+                style={{
+                  background: `${tier.color}08`,
+                  border: `1px solid ${tier.color}22`,
+                }}
+                whileTap={{ scale: 0.98 }}
+              >
+                <div
+                  className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
+                  style={{
+                    background: `${tier.color}15`,
+                    border: `1px solid ${tier.color}33`,
+                  }}
+                >
+                  <Icon className="w-4 h-4" style={{ color: tier.color }} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs font-bold text-foreground">{tier.name}</span>
+                    <span
+                      className="text-[9px] font-mono px-1.5 py-0.5 rounded"
+                      style={{
+                        background: `${tier.color}18`,
+                        color: tier.color,
+                        border: `1px solid ${tier.color}33`,
+                      }}
+                    >
+                      ⭐ {tier.stars}
+                    </span>
+                  </div>
+                  <p className="text-[10px] font-mono text-muted-foreground leading-snug mt-0.5">
+                    {tier.description}
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  className="h-7 px-3 text-[10px] font-bold flex-shrink-0 holo-btn"
+                  style={{
+                    background: `${tier.color}18`,
+                    border: `1px solid ${tier.color}44`,
+                    color: tier.color,
+                  }}
+                  disabled={isPurchasing}
+                  onClick={() => onDonate(tier.id)}
+                >
+                  {isPurchasing ? (
+                    <span className="flex items-center gap-1">
+                      <span className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                    </span>
+                  ) : (
+                    '⭐ Донат'
+                  )}
+                </Button>
+              </motion.div>
+            );
+          })}
+        </div>
+      </div>
+    </motion.div>
   );
 }
 

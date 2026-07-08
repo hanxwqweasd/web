@@ -9,7 +9,7 @@ export type TechBranch = 'military' | 'engineering' | 'biological' | 'psycho';
 export type ShipClass = 'fighter' | 'frigate' | 'cruiser' | 'dreadnought';
 export type CombatTactic = 'aggressive' | 'defensive' | 'recon';
 export type RoomId = 'bridge' | 'engineering' | 'bioLab' | 'hangar' | 'bar' | 'serverRoom' | 'corridor';
-export type GameScreen = 'station' | 'room' | 'techTree' | 'fleet' | 'combat' | 'map' | 'minigames' | 'shop' | 'quests';
+export type GameScreen = 'station' | 'room' | 'techTree' | 'fleet' | 'combat' | 'map' | 'minigames' | 'shop' | 'quests' | 'profile' | 'leaderboard' | 'admin';
 
 export interface Resources {
   energy: number;

@@ -30,3 +30,152 @@ Stage Summary:
 - Persistent state via Zustand + localStorage
 - HTTP 200 confirmed, ESLint clean (0 errors, 0 warnings)
 - Browser verified: renders with 17 buttons, 95 divs, station view with resources and rooms
+
+---
+Task ID: 2
+Agent: full-stack-developer
+Task: Create Telegram Bot Mini-Service
+
+Work Log:
+- Created `/home/z/my-project/mini-services/telegram-bot/` directory structure
+- Created `package.json` with `node-telegram-bot-api` (^0.66.0) and `express` (^4.21.0) dependencies, `dev` script using `bun --hot index.ts`
+- Created `index.ts` entry point with full bot implementation:
+  - Configurable via env vars: `BOT_TOKEN`, `GAME_URL`, `PORT` (default 3001), `USE_WEBHOOK`, `WEBHOOK_URL`
+  - `/start` command: sends Russian welcome message with MarkdownV2 formatting and "Начать Играть" web_app inline keyboard button pointing to GAME_URL
+  - `/help` command: comprehensive Russian game guide covering building, research, fleet, map, resources, and bot commands
+  - `pre_checkout_query` handler: logs and auto-approves Telegram Stars payments
+  - `successful_payment` handler: logs payment details and sends confirmation message in Russian
+  - Generic message handler: responds with game button for any non-command text
+  - Error handling: polling_error, webhook_error event listeners, MarkdownV2 fallback to plain text
+  - Express server with `/health` endpoint and webhook POST endpoint for production use
+  - Polling mode by default, webhook mode via `USE_WEBHOOK=true` env var
+- Installed dependencies with `bun install` (221 packages)
+- Started bot in background (PID 2208), confirmed stable operation
+- Bot running in polling mode with GAME_URL=https://t.me/StarDominionBot/game
+
+Stage Summary:
+- Telegram bot mini-service fully operational in polling mode
+- Supports /start (with web_app button), /help, payment processing
+- Express server on port 3001 for health checks and webhook support
+- All messages in Russian, themed for Star Dominion game
+- Graceful error handling with MarkdownV2 fallback
+
+---
+Task ID: 3
+Agent: full-stack-developer
+Task: Integrate Telegram Web App SDK and Create Stars Payment API
+
+Work Log:
+- Created `/home/z/my-project/src/lib/telegram.ts` — Telegram Web App SDK utility module:
+  - TypeScript interfaces for `TelegramUser`, `WebApp`, and global `window.Telegram` declaration
+  - `isTelegramWebApp()` — runtime check for Telegram environment
+  - `getTelegramUser()` — returns user data or null
+  - `openStarsInvoice(url, callback?)` — wraps `WebApp.openInvoice` with typed callback
+  - `hapticFeedback(type)` — wraps both impact and notification haptic types
+  - `initTelegramWebApp()` — calls `ready()` + `expand()`
+  - `onInvoiceClosed()` / `offInvoiceClosed()` — subscribe to payment confirmation events
+  - `getWebApp()` — raw accessor for advanced usage
+- Updated `/home/z/my-project/src/app/layout.tsx` — added `<script src="https://telegram.org/js/telegram-web-app.js" defer />` before closing body tag
+- Updated `/home/z/my-project/src/app/page.tsx`:
+  - On mount: calls `initTelegramWebApp()`, logs Telegram user data
+  - Subscribes to `invoice_closed` event; on 'paid' status dispatches custom `telegram-stars-paid` event to window
+  - Properly cleans up event listener on unmount
+- Created `/home/z/my-project/src/app/api/stars/invoice/route.ts`:
+  - POST endpoint accepting `{ itemId, telegramUserId }`
+  - 4 donation tiers defined: support (1 Star), ally (5), patron (25), legend (100)
+  - Calls Telegram `createInvoiceLink` API with `currency: "XTR"`, item-specific title/description/payload
+  - Returns `{ url }` for client-side invoice opening
+- Created `/home/z/my-project/src/app/api/stars/webhook/route.ts`:
+  - POST endpoint handling Telegram payment callbacks
+  - Processes `pre_checkout_query` (validates payload format, returns ok)
+  - Processes `successful_payment` (parses payload, deduplicates via in-memory Set, logs details)
+  - Handles both direct and nested `message.successful_payment` structures
+- Updated `/home/z/my-project/src/components/game/ShopView.tsx`:
+  - Added Telegram Stars banner at top: "💎 Донат через Telegram Stars — безопасно и удобно!" with Send icon
+  - Added `TelegramStarsSection` component with 4 donation tiers (Поддержка/Союзник/Покровитель/Легенда)
+  - Each tier shows icon, name, star cost badge, description, and "⭐ Донат" button
+  - `handleStarsDonation()`: checks `isTelegramWebApp()`, calls `/api/stars/invoice`, opens invoice via `openStarsInvoice`
+  - If not in Telegram: shows toast "Откройте игру через Telegram бота для доната"
+  - Loading spinner on button while invoice is pending
+  - Listens for `telegram-stars-paid` custom event to credit resources:
+    - ally: +5000 minerals
+    - patron: +5000 energy, +5000 minerals, +100 crystals
+    - legend: +10000 all resources
+  - Maintains existing shop items grid and free shards section below
+  - Removed unused imports (Tabs components, resources, setNotification)
+
+Stage Summary:
+- Full Telegram Web App SDK integration with typed utilities
+- Stars payment flow: client → invoice API → Telegram API → invoice opens → callback → credit resources
+- Shop updated with donation UI consistent with neon space theme
+- ESLint clean (0 errors, 0 warnings), HTTP 200 confirmed
+
+---
+Task ID: 4
+Agent: full-stack-developer
+Task: Create All API Routes for Player, Admin, Leaderboard, Referrals
+
+Work Log:
+- Created `src/app/api/player/route.ts` — Player CRUD:
+  - GET `/api/player?telegramUserId=123` — fetch player by telegramUserId
+  - POST/PUT `/api/player` — upsert player (create with auto-generated "SD" + 6-char UUID referral code, or update all fields; sets lastLoginAt/lastSaveAt)
+- Created `src/app/api/player/referral/route.ts` — Referral System:
+  - GET `/api/player/referral?telegramUserId=123` — returns referralCode, referralCount, referredPlayers list
+  - POST `/api/player/referral` — apply referral code with validation (no self-referral, no double-use), distributes +200 minerals +100 energy +50 starShards to both players via Prisma transaction
+- Created `src/app/api/leaderboard/route.ts` — Leaderboard top players:
+  - GET `/api/leaderboard?type=rating&limit=50` — sorts by rating/level/pvpWins/totalBattlesWon (desc), excludes banned, returns rank + top3Rewards
+- Created `src/app/api/leaderboard/me/route.ts` — Player rank lookup:
+  - GET `/api/leaderboard/me?telegramUserId=123` — returns rank + total across all 4 categories (rating, level, pvpWins, battles)
+- Created `src/app/api/admin/route.ts` — Admin index endpoint listing available endpoints
+- Created `src/app/api/admin/players/route.ts` — Admin player listing:
+  - GET `/api/admin/players?page=1&limit=20&search=test` — paginated, searchable by username/firstName/telegramUserId
+- Created `src/app/api/admin/stats/route.ts` — Admin global statistics:
+  - GET `/api/admin/stats` — totalPlayers, activeToday, totalPvpBattles, totalMineralsMined, averageRating, averageLevel, topFactions, playersByLevel
+- Created `src/app/api/admin/player/[id]/route.ts` — Admin player management:
+  - PUT — update any player field, or special actions: addResources, setRating, setLevel, ban, unban, setAdmin
+  - DELETE — soft delete (mark isBanned=true with reason)
+- Created `src/app/api/admin/leaderboard/reward/route.ts` — Top 3 reward distribution:
+  - POST — distributes crystals + starShards to top 3 by rating (#1: 5000+1000, #2: 2000+500, #3: 1000+200) via Prisma transaction
+
+Stage Summary:
+- 9 new API route files created covering full Player, Leaderboard, Admin, and Referral functionality
+- All routes use proper HTTP status codes, try/catch error handling, and typed request/response
+- Admin sub-routes (players, stats) created as proper Next.js App Router subdirectories
+- 0 new lint errors/warnings from API routes (2 pre-existing errors in ProfileView.tsx and LeaderboardView.tsx)
+
+---
+Task ID: 6+7
+Agent: full-stack-developer
+Task: Build Profile Screen, Leaderboard Screen, and Update Navigation
+
+Work Log:
+- Added `setCaptainName` action to Zustand game store (interface + implementation, persisted in partialize)
+- Created `src/components/game/ProfileView.tsx`:
+  - ProfileHeader: avatar with faction icon (inline conditional rendering), editable captain name (click-to-edit with Input, Enter/Escape/blur handling), faction badge, rating + level display, member since date, Telegram username
+  - StatsGrid: 2x3 grid of stat cards (PvP wins, Rating, Station Level, Techs researched, Ships built, Total minerals mined) with colored icons
+  - ReferralSection: fetches from `/api/player/referral?telegramUserId=X` with demo fallback (SD-A3F8K2 code, 3 referred friends), copy referral link button with haptic + toast feedback, reward display (+200 minerals, +100 energy, +50 shards), friend list with status badges
+  - AchievementsShowcase: grid of 8 achievements with unlock state, progress bar, icon mapping
+  - ResourcesSummary: current resources with production rates, total minerals mined display
+- Created `src/components/game/LeaderboardView.tsx`:
+  - 4-tab period selector (Рейтинг/Уровень/PvP/Битвы) using shadcn Tabs
+  - Top 3 Podium: gold (#1 with crown + glow), silver (#2), bronze (#3) cards with avatar, name, value, faction badge, level
+  - #1 reward display: 💎5000 кристаллов + ⭐1000 осколков
+  - PvP Challenge button on top 3 players with AlertDialog confirmation dialog
+  - Full Rankings List (ScrollArea, max-h-96) with rank, avatar, name, faction, level, value; current player highlighted with cyan border
+  - My Rank sticky card at bottom with "Ваш рейтинг: #X из Y"
+  - Fetches from `/api/leaderboard?type=X&limit=50` and `/api/leaderboard/me?telegramUserId=X` with 20 fake Russian space-themed player fallback
+  - Player injected into rankings from local store data
+- Updated `src/components/game/NavigationBar.tsx`:
+  - New nav items: Станция, Флот, Техно, Карта, Топ (Trophy), Профиль (User), Магазин
+  - Removed minigames and quests from nav; added Trophy + User imports; removed Gamepad2 + ScrollText + Swords imports
+- Updated `src/app/page.tsx`:
+  - Added ProfileView and LeaderboardView imports
+  - Added `case 'profile'` and `case 'leaderboard'` to ScreenRenderer switch
+- Fixed ESLint errors: dynamic component creation in ProfileView (inline faction icons), synchronous setState in effect in LeaderboardView (setTimeout wrapper + derived loading state)
+
+Stage Summary:
+- 2 new game screen components (ProfileView, LeaderboardView) with full neon space theme
+- Navigation updated with 7 items: Станция, Флот, Техно, Карта, Топ, Профиль, Магазин
+- Profile: editable name, stats grid, referral system, achievements, resources summary
+- Leaderboard: 4 category tabs, top 3 podium with glow, challenge dialog, full rankings list, sticky my-rank card
+- ESLint clean (0 errors, 0 warnings), dev server compiling successfully with HTTP 200

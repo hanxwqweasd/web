@@ -1,0 +1,14 @@
+{
+  "name": "star-dominion-telegram-bot",
+  "version": "1.0.0",
+  "description": "Telegram Bot for Star Dominion - Deep Space Strategy Game",
+  "type": "module",
+  "scripts": {
+    "dev": "bun --hot index.ts",
+    "start": "bun index.ts"
+  },
+  "dependencies": {
+    "node-telegram-bot-api": "^0.66.0",
+    "express": "^4.21.0"
+  }
+}

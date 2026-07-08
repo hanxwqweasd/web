@@ -136,6 +136,9 @@ interface GameStore extends GameState {
   // Tutorial
   advanceTutorial: () => void;
 
+  // Profile
+  setCaptainName: (name: string) => void;
+
   // Reset
   resetGame: () => void;
 
@@ -677,6 +680,8 @@ export const useGameStore = create<GameStore>()(
           set({ tutorialStep: next });
         }
       },
+
+      setCaptainName: (name) => set({ captainName: name }),
 
       resetGame: () => {
         set({ ...initialState, lastTick: Date.now(), dailyQuests: generateDailyQuests(), mapNodes: DEFAULT_MAP_NODES.map(n => ({ ...n })) });

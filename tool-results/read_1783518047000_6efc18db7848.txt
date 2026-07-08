@@ -1,0 +1,1686 @@
+     1→'use client';
+     2→
+     3→import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+     4→import { motion, AnimatePresence } from 'framer-motion';
+     5→import { useGameStore } from '@/lib/game/store';
+     6→import { ROOM_DEFS, MODULE_DEFS, SHIP_DEFS, TECH_DEFS, RESOURCE_CONFIG, MODULE_TYPE_NAMES, SHIP_CLASS_NAMES, COLLECTION_COOLDOWN } from '@/lib/game/constants';
+     7→import type { RoomId } from '@/lib/game/types';
+     8→import {
+     9→  Compass, Wrench, FlaskConical, Rocket, Wine, Server, AlertTriangle,
+    10→  Zap, Pickaxe, Leaf, Diamond, Shield, Crosshair, Factory, Users,
+    11→  Eye, Map, Swords, Brain, Heart, Bug, Globe, Cog, Atom, Anchor,
+    12→  Crown, Plane, PlaneTakeoff, Ship as ShipIcon, Warehouse,
+    13→  EyeOff, Star, Clock, TrendingUp, ChevronRight, CircleDot, Sparkles,
+    14→  Link, ShieldCheck, Bomb, Package, Music,
+    15→  MessageCircle, Lock, Play, RotateCw, ArrowRight, Scan, Terminal,
+    16→  Activity, Radio, Cpu, Database, HardDrive, Flame, Snowflake,
+    17→  Search, Skull, Ghost, ScrollText, Trophy
+    18→} from 'lucide-react';
+    19→
+    20→// ============================================================
+    21→// Utility: Dynamic Lucide icon resolver
+    22→// ============================================================
+    23→const ICON_MAP: Record<string, React.ComponentType<{ className?: string; style?: React.CSSProperties }>> = {
+    24→  Zap, Pickaxe, Leaf, Diamond, Shield, Crosshair, Factory, Users, FlaskConical, Rocket,
+    25→  Swords, Brain, Heart, Bug, Globe, Cog, Atom, Anchor, Crown, Plane, PlaneTakeoff, ShipIcon,
+    26→  Warehouse, EyeOff, Eye, Link, ShieldCheck, Bomb,
+    27→  CircleDot, Sparkles, Compass, Wrench, Wine, Server, AlertTriangle, Terminal,
+    28→  Star, Clock, TrendingUp, Package, Activity, Radio, Cpu, Database, HardDrive,
+    29→  Flame, Snowflake, Search, Skull, Ghost, ScrollText, Trophy, Play, RotateCw,
+    30→  ArrowRight, Scan, MessageCircle, Lock, Music, ChevronRight, Map,
+    31→};
+    32→
+    33→function getIcon(name: string): React.ComponentType<{ className?: string; style?: React.CSSProperties }> {
+    34→  return ICON_MAP[name] || Zap;
+    35→}
+    36→
+    37→function formatNumber(n: number): string {
+    38→  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
+    39→  if (n >= 1_000) return (n / 1_000).toFixed(1) + 'K';
+    40→  return Math.floor(n).toString();
+    41→}
+    42→
+    43→function formatTime(ms: number): string {
+    44→  const s = Math.max(0, Math.ceil(ms / 1000));
+    45→  const m = Math.floor(s / 60);
+    46→  const sec = s % 60;
+    47→  return m > 0 ? `${m}м ${sec}с` : `${sec}с`;
+    48→}
+    49→
+    50→// ============================================================
+    51→// Animation Variants
+    52→// ============================================================
+    53→const fadeIn = {
+    54→  initial: { opacity: 0, y: 20 },
+    55→  animate: { opacity: 1, y: 0 },
+    56→  exit: { opacity: 0, y: -20 },
+    57→  transition: { duration: 0.4, ease: 'easeOut' },
+    58→};
+    59→
+    60→const staggerContainer = {
+    61→  animate: { transition: { staggerChildren: 0.08 } },
+    62→};
+    63→
+    64→const staggerItem = {
+    65→  initial: { opacity: 0, x: -15 },
+    66→  animate: { opacity: 1, x: 0, transition: { duration: 0.35 } },
+    67→};
+    68→
+    69→const scaleIn = {
+    70→  initial: { opacity: 0, scale: 0.85 },
+    71→  animate: { opacity: 1, scale: 1, transition: { duration: 0.4, type: 'spring', bounce: 0.25 } },
+    72→};
+    73→
+    74→// ============================================================
+    75→// Room Header Icons (pre-built to avoid dynamic component creation)
+    76→// ============================================================
+    77→const ROOM_HEADER_ICONS: Record<string, React.ReactNode> = {};
+    78→(() => {
+    79→  for (const room of ROOM_DEFS) {
+    80→    const Icon = getIcon(room.icon);
+    81→    ROOM_HEADER_ICONS[room.id] = <Icon className="w-6 h-6" style={{ color: room.accentColor }} />;
+    82→  }
+    83→})();
+    84→
+    85→function RoomHeaderIcon({ roomId }: { roomId: string }) {
+    86→  return <>{ROOM_HEADER_ICONS[roomId]}</>;
+    87→}
+    88→
+    89→// ============================================================
+    90→// Main Component
+    91→// ============================================================
+    92→export default function RoomView() {
+    93→  const currentRoom = useGameStore(s => s.currentRoom);
+    94→
+    95→  if (!currentRoom) return null;
+    96→
+    97→  const roomDef = ROOM_DEFS.find(r => r.id === currentRoom);
+    98→  if (!roomDef) return null;
+    99→
+   100→  return (
+   101→    <div className={`holo-transition min-h-full ${roomDef.bgColor} relative overflow-hidden`}>
+   102→      <AnimatePresence mode="wait">
+   103→        <motion.div
+   104→          key={currentRoom}
+   105→          className="p-4 pb-24 relative z-10"
+   106→          {...fadeIn}
+   107→        >
+   108→          {/* Room Header */}
+   109→          <motion.div className="mb-4" {...scaleIn}>
+   110→            <div className="flex items-center gap-3 mb-1">
+   111→              <RoomHeaderIcon roomId={currentRoom} />
+   112→              <h2 className="text-xl font-bold tracking-wide" style={{ color: roomDef.accentColor }}>
+   113→                {roomDef.name}
+   114→              </h2>
+   115→            </div>
+   116→            <p className="text-xs text-muted-foreground italic leading-relaxed ml-9">
+   117→              {roomDef.ambientDesc}
+   118→            </p>
+   119→          </motion.div>
+   120→
+   121→          {/* Room Content */}
+   122→          {currentRoom === 'bridge' && <BridgeRoom accentColor={roomDef.accentColor} />}
+   123→          {currentRoom === 'engineering' && <EngineeringRoom accentColor={roomDef.accentColor} />}
+   124→          {currentRoom === 'bioLab' && <BioLabRoom accentColor={roomDef.accentColor} />}
+   125→          {currentRoom === 'hangar' && <HangarRoom accentColor={roomDef.accentColor} />}
+   126→          {currentRoom === 'bar' && <BarRoom accentColor={roomDef.accentColor} />}
+   127→          {currentRoom === 'serverRoom' && <ServerRoom accentColor={roomDef.accentColor} />}
+   128→          {currentRoom === 'corridor' && <CorridorRoom accentColor={roomDef.accentColor} />}
+   129→        </motion.div>
+   130→      </AnimatePresence>
+   131→    </div>
+   132→  );
+   133→}
+   134→
+   135→// ============================================================
+   136→// 1. BRIDGE ROOM
+   137→// ============================================================
+   138→function BridgeRoom({ accentColor }: { accentColor: string }) {
+   139→  const modules = useGameStore(s => s.modules);
+   140→  const ships = useGameStore(s => s.ships);
+   141→  const resources = useGameStore(s => s.resources);
+   142→  const setScreen = useGameStore(s => s.setScreen);
+   143→  const stationName = useGameStore(s => s.stationName);
+   144→  const stationLevel = useGameStore(s => s.stationLevel);
+   145→
+   146→  const totalFleetPower = useMemo(() => {
+   147→    return ships.reduce((sum, s) => {
+   148→      const def = SHIP_DEFS.find(d => d.id === s.defId);
+   149→      if (!def) return sum;
+   150→      return sum + (def.attack + def.defense) * s.quantity;
+   151→    }, 0);
+   152→  }, [ships]);
+   153→
+   154→  const healthyModules = modules.filter(m => !m.building).length;
+   155→  const buildingModules = modules.filter(m => m.building).length;
+   156→
+   157→  return (
+   158→    <motion.div className="space-y-4" variants={staggerContainer} initial="initial" animate="animate">
+   159→      {/* Holographic Map Display */}
+   160→      <motion.div variants={staggerItem} className="relative">
+   161→        <div
+   162→          className="relative rounded-2xl overflow-hidden p-4"
+   163→          style={{
+   164→            border: `1px solid ${accentColor}33`,
+   165→            boxShadow: `0 0 30px ${accentColor}15, inset 0 0 30px ${accentColor}08`,
+   166→            background: `linear-gradient(135deg, rgba(0,0,0,0.4), rgba(0,240,255,0.03))`,
+   167→          }}
+   168→        >
+   169→          {/* Grid overlay */}
+   170→          <div
+   171→            className="absolute inset-0 opacity-10 pointer-events-none"
+   172→            style={{
+   173→              backgroundImage: `linear-gradient(${accentColor}22 1px, transparent 1px), linear-gradient(90deg, ${accentColor}22 1px, transparent 1px)`,
+   174→              backgroundSize: '30px 30px',
+   175→            }}
+   176→          />
+   177→          {/* Pulsing scan ring */}
+   178→          <div
+   179→            className="absolute inset-0 pointer-events-none"
+   180→            style={{
+   181→              background: `radial-gradient(circle at 50% 50%, transparent 30%, ${accentColor}08 70%, transparent 71%)`,
+   182→              animation: 'glow-pulse 3s ease-in-out infinite',
+   183→            }}
+   184→          />
+   185→          <div className="relative z-10 text-center py-6">
+   186→            <div className="text-[10px] font-mono tracking-[0.3em] mb-2 opacity-50" style={{ color: accentColor }}>
+   187→              ГОЛОГРАФИЧЕСКАЯ КАРТА СЕКТОРА
+   188→            </div>
+   189→            <div className="text-2xl font-bold mb-1" style={{ color: accentColor }}>
+   190→              Андромеда-7
+   191→            </div>
+   192→            <div className="text-xs text-muted-foreground font-mono">
+   193→              Уровень угрозы: <span className="text-yellow-400">СРЕДНИЙ</span>
+   194→            </div>
+   195→            {/* Fake star dots */}
+   196→            <div className="flex justify-center gap-3 mt-3">
+   197→              {Array.from({ length: 7 }).map((_, i) => (
+   198→                <motion.div
+   199→                  key={i}
+   200→                  className="w-1.5 h-1.5 rounded-full"
+   201→                  style={{
+   202→                    background: accentColor,
+   203→                    animation: `ambient-blink ${2 + i * 0.5}s ease-in-out infinite`,
+   204→                    animationDelay: `${i * 0.3}s`,
+   205→                  }}
+   206→                />
+   207→              ))}
+   208→            </div>
+   209→          </div>
+   210→        </div>
+   211→      </motion.div>
+   212→
+   213→      {/* Status Panels */}
+   214→      <motion.div variants={staggerItem} className="grid grid-cols-3 gap-2">
+   215→        {/* Station Status */}
+   216→        <div
+   217→          className="rounded-xl p-3 text-center"
+   218→          style={{
+   219→            border: `1px solid ${accentColor}22`,
+   220→            background: 'rgba(0,0,0,0.35)',
+   221→          }}
+   222→        >
+   223→          <div className="text-[9px] font-mono opacity-50 mb-1" style={{ color: accentColor }}>СТАНЦИЯ</div>
+   224→          <div className="text-lg font-bold" style={{ color: accentColor }}>{stationName}</div>
+   225→          <div className="text-[10px] text-muted-foreground">Ур. {stationLevel}</div>
+   226→          <div className="text-[10px] text-green-400 mt-0.5">{healthyModules} / {modules.length} мод.</div>
+   227→        </div>
+   228→        {/* Fleet Status */}
+   229→        <div
+   230→          className="rounded-xl p-3 text-center"
+   231→          style={{
+   232→            border: `1px solid ${accentColor}22`,
+   233→            background: 'rgba(0,0,0,0.35)',
+   234→          }}
+   235→        >
+   236→          <div className="text-[9px] font-mono opacity-50 mb-1" style={{ color: accentColor }}>ФЛОТ</div>
+   237→          <div className="text-lg font-bold" style={{ color: accentColor }}>
+   238→            {ships.reduce((s, sh) => s + sh.quantity, 0)}
+   239→          </div>
+   240→          <div className="text-[10px] text-muted-foreground">кораблей</div>
+   241→          <div className="text-[10px] text-orange-400 mt-0.5">⚡ {formatNumber(totalFleetPower)}</div>
+   242→        </div>
+   243→        {/* Resource Summary */}
+   244→        <div
+   245→          className="rounded-xl p-3 text-center"
+   246→          style={{
+   247→            border: `1px solid ${accentColor}22`,
+   248→            background: 'rgba(0,0,0,0.35)',
+   249→          }}
+   250→        >
+   251→          <div className="text-[9px] font-mono opacity-50 mb-1" style={{ color: accentColor }}>РЕСУРСЫ</div>
+   252→          <div className="text-sm font-bold" style={{ color: '#fbbf24' }}>⚡ {formatNumber(resources.energy)}</div>
+   253→          <div className="text-[10px]" style={{ color: '#06b6d4' }}>⛏ {formatNumber(resources.minerals)}</div>
+   254→          <div className="text-[10px]" style={{ color: '#a855f7' }}>◆ {resources.crystals}</div>
+   255→        </div>
+   256→      </motion.div>
+   257→
+   258→      {/* Console Indicators */}
+   259→      <motion.div variants={staggerItem} className="flex justify-center gap-6 py-2">
+   260→        {[0, 1, 2].map(i => (
+   261→          <div key={i} className="flex items-center gap-2">
+   262→            <motion.div
+   263→              className="w-2.5 h-2.5 rounded-full"
+   264→              style={{
+   265→                background: accentColor,
+   266→                boxShadow: `0 0 10px ${accentColor}, 0 0 20px ${accentColor}66`,
+   267→              }}
+   268→              animate={{ scale: [1, 1.4, 1], opacity: [0.6, 1, 0.6] }}
+   269→              transition={{ duration: 2, repeat: Infinity, delay: i * 0.7 }}
+   270→            />
+   271→            <span className="text-[9px] font-mono text-muted-foreground">
+   272→              {['НАВ', 'ЩИТ', 'ЭНЕР'][i]}
+   273→            </span>
+   274→          </div>
+   275→        ))}
+   276→      </motion.div>
+   277→
+   278→      {/* NPC Dialogue Bubble */}
+   279→      <motion.div variants={staggerItem}>
+   280→        <div
+   281→          className="rounded-2xl rounded-tl-sm p-3 relative"
+   282→          style={{
+   283→            border: `1px solid ${accentColor}22`,
+   284→            background: 'rgba(0,0,0,0.4)',
+   285→          }}
+   286→        >
+   287→          <div className="absolute -top-2 -left-1 w-4 h-4 rotate-45" style={{ background: 'rgba(0,0,0,0.4)', borderLeft: `1px solid ${accentColor}22`, borderBottom: `1px solid ${accentColor}22` }} />
+   288→          <div className="flex items-start gap-2">
+   289→            <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: `${accentColor}22`, border: `1px solid ${accentColor}44` }}>
+   290→              <Radio className="w-4 h-4" style={{ color: accentColor }} />
+   291→            </div>
+   292→            <div>
+   293→              <div className="text-[10px] font-mono mb-1" style={{ color: accentColor }}>ОФИЦЕР СВЯЗИ</div>
+   294→              <p className="text-xs text-foreground/80 leading-relaxed">
+   295→                Капитан, обнаружена новая аномалия в секторе G-12. Рекомендую сканирование.
+   296→              </p>
+   297→            </div>
+   298→          </div>
+   299→        </div>
+   300→      </motion.div>
+   301→
+   302→      {/* Quick Actions */}
+   303→      <motion.div variants={staggerItem} className="flex gap-2">
+   304→        {[
+   305→          { label: 'Разведка', icon: Eye, screen: 'map' as const },
+   306→          { label: 'Флот', icon: Rocket, screen: 'fleet' as const },
+   307→          { label: 'Карта', icon: Map, screen: 'map' as const },
+   308→        ].map(action => {
+   309→          const Icon = action.icon;
+   310→          return (
+   311→            <button
+   312→              key={action.label}
+   313→              onClick={() => setScreen(action.screen)}
+   314→              className="holo-btn flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-medium transition-all"
+   315→              style={{
+   316→                border: `1px solid ${accentColor}33`,
+   317→                background: `${accentColor}0d`,
+   318→                color: accentColor,
+   319→              }}
+   320→            >
+   321→              <Icon className="w-3.5 h-3.5" />
+   322→              {action.label}
+   323→            </button>
+   324→          );
+   325→        })}
+   326→      </motion.div>
+   327→    </motion.div>
+   328→  );
+   329→}
+   330→
+   331→// ============================================================
+   332→// 2. ENGINEERING ROOM
+   333→// ============================================================
+   334→function EngineeringRoom({ accentColor }: { accentColor: string }) {
+   335→  const modules = useGameStore(s => s.modules);
+   336→  const resources = useGameStore(s => s.resources);
+   337→  const upgradeModule = useGameStore(s => s.upgradeModule);
+   338→  const buildModule = useGameStore(s => s.buildModule);
+   339→  const setNotification = useGameStore(s => s.setNotification);
+   340→  const getBuildTimeRemaining = useGameStore(s => s.getBuildTimeRemaining);
+   341→  const moduleSlots = useGameStore(s => s.moduleSlots);
+   342→
+   343→  const [timeLeft, setTimeLeft] = useState<Record<string, number>>({});
+   344→  const [buildMenuOpen, setBuildMenuOpen] = useState(false);
+   345→
+   346→  useEffect(() => {
+   347→    const interval = setInterval(() => {
+   348→      const times: Record<string, number> = {};
+   349→      modules.forEach(m => {
+   350→        if (m.building) times[m.id] = getBuildTimeRemaining(m.id);
+   351→      });
+   352→      setTimeLeft(times);
+   353→    }, 1000);
+   354→    return () => clearInterval(interval);
+   355→  }, [modules, getBuildTimeRemaining]);
+   356→
+   357→  const hasBuildingModule = modules.some(m => m.building);
+   358→
+   359→  return (
+   360→    <motion.div className="space-y-4" variants={staggerContainer} initial="initial" animate="animate">
+   361→      {/* Pipes Visual */}
+   362→      <div className="relative h-2 rounded-full overflow-hidden" style={{ background: `${accentColor}15` }}>
+   363→        <motion.div
+   364→          className="absolute inset-y-0 left-0 rounded-full"
+   365→          style={{ background: `linear-gradient(90deg, transparent, ${accentColor}88, transparent)`, width: '40%' }}
+   366→          animate={{ x: ['-100%', '350%'] }}
+   367→          transition={{ duration: 2.5, repeat: Infinity, ease: 'linear' }}
+   368→        />
+   369→      </div>
+   370→
+   371→      {/* Module Count / Build Button */}
+   372→      <motion.div variants={staggerItem} className="flex items-center justify-between">
+   373→        <span className="text-xs font-mono text-muted-foreground">
+   374→          Модули: {modules.length}/{moduleSlots}
+   375→        </span>
+   376→        {modules.length < moduleSlots && (
+   377→          <button
+   378→            onClick={() => setBuildMenuOpen(!buildMenuOpen)}
+   379→            className="holo-btn flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium"
+   380→            style={{ border: `1px solid ${accentColor}44`, background: `${accentColor}15`, color: accentColor }}
+   381→          >
+   382→            <Plus className="w-3.5 h-3.5" />
+   383→            Построить
+   384→          </button>
+   385→        )}
+   386→      </motion.div>
+   387→
+   388→      {/* Quick Build Menu */}
+   389→      <AnimatePresence>
+   390→        {buildMenuOpen && (
+   391→          <motion.div
+   392→            initial={{ height: 0, opacity: 0 }}
+   393→            animate={{ height: 'auto', opacity: 1 }}
+   394→            exit={{ height: 0, opacity: 0 }}
+   395→            className="overflow-hidden"
+   396→          >
+   397→            <div className="grid grid-cols-3 gap-2 p-3 rounded-xl" style={{ background: 'rgba(0,0,0,0.3)', border: `1px solid ${accentColor}22` }}>
+   398→              {Object.entries(MODULE_TYPE_NAMES).map(([type, name]) => {
+   399→                const count = modules.filter(m => {
+   400→                  const def = MODULE_DEFS.find(d => d.id === m.defId);
+   401→                  return def?.type === type;
+   402→                }).length;
+   403→                const defsForType = MODULE_DEFS.filter(d => d.type === type);
+   404→                const Icon = getIcon(defsForType[0]?.icon || 'Cog');
+   405→                return (
+   406→                  <button
+   407→                    key={type}
+   408→                    onClick={() => {
+   409→                      const result = buildModule(defsForType[0].id);
+   410→                      setNotification(result.message);
+   411→                      if (result.success) setBuildMenuOpen(false);
+   412→                    }}
+   413→                    className="flex flex-col items-center gap-1 p-2 rounded-lg transition-all hover:scale-105"
+   414→                    style={{ border: `1px solid ${accentColor}15`, background: `${accentColor}08` }}
+   415→                  >
+   416→                    <Icon className="w-5 h-5" style={{ color: accentColor }} />
+   417→                    <span className="text-[9px] text-muted-foreground">{name}</span>
+   418→                    {count > 0 && <span className="text-[8px] font-mono" style={{ color: accentColor }}>×{count}</span>}
+   419→                  </button>
+   420→                );
+   421→              })}
+   422→            </div>
+   423→          </motion.div>
+   424→        )}
+   425→      </AnimatePresence>
+   426→
+   427→      {/* Construction Robot */}
+   428→      {hasBuildingModule && (
+   429→        <motion.div
+   430→          className="flex justify-center py-2"
+   431→          initial={{ opacity: 0, y: 10 }}
+   432→          animate={{ opacity: 1, y: 0 }}
+   433→        >
+   434→          <motion.div
+   435→            className="flex flex-col items-center gap-1"
+   436→            animate={{ y: [0, -6, 0] }}
+   437→            transition={{ duration: 1.5, repeat: Infinity, ease: 'easeInOut' }}
+   438→          >
+   439→            <Cpu className="w-8 h-8" style={{ color: accentColor }} />
+   440→            <div className="text-[9px] font-mono animate-pulse" style={{ color: accentColor }}>
+   441→              ⚙ СТРОИТЕЛЬСТВО...
+   442→            </div>
+   443→          </motion.div>
+   444→        </motion.div>
+   445→      )}
+   446→
+   447→      {/* Module Terminal Cards */}
+   448→      <motion.div variants={staggerItem} className="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
+   449→        {modules.length === 0 && (
+   450→          <div className="text-center py-8 text-muted-foreground text-sm">
+   451→            <Factory className="w-10 h-10 mx-auto mb-2 opacity-30" />
+   452→            Нет модулей. Постройте первый!
+   453→          </div>
+   454→        )}
+   455→        {modules.map(mod => {
+   456→          const def = MODULE_DEFS.find(d => d.id === mod.defId);
+   457→          if (!def) return null;
+   458→          const Icon = getIcon(def.icon);
+   459→          const remaining = timeLeft[mod.id] || 0;
+   460→          const totalBuildTime = mod.buildEndTime && mod.buildStartTime
+   461→            ? mod.buildEndTime - mod.buildStartTime
+   462→            : 0;
+   463→          const progress = totalBuildTime > 0 ? 1 - remaining / totalBuildTime : 0;
+   464→
+   465→          return (
+   466→            <motion.div
+   467→              key={mod.id}
+   468→              className="rounded-xl p-3"
+   469→              style={{
+   470→                border: `1px solid ${accentColor}22`,
+   471→                background: 'rgba(0,0,0,0.35)',
+   472→              }}
+   473→              whileTap={{ scale: 0.98 }}
+   474→            >
+   475→              <div className="flex items-center justify-between mb-2">
+   476→                <div className="flex items-center gap-2">
+   477→                  <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: `${accentColor}18` }}>
+   478→                    <Icon className="w-4 h-4" style={{ color: accentColor }} />
+   479→                  </div>
+   480→                  <div>
+   481→                    <div className="text-sm font-medium">{def.name}</div>
+   482→                    <div className="text-[10px] text-muted-foreground font-mono">
+   483→                      {MODULE_TYPE_NAMES[def.type]} • {def.description.slice(0, 35)}...
+   484→                    </div>
+   485→                  </div>
+   486→                </div>
+   487→                <div className="text-right">
+   488→                  <div className="text-xs font-bold font-mono" style={{ color: accentColor }}>
+   489→                    Ур. {mod.level}
+   490→                  </div>
+   491→                  <div className="text-[9px] text-muted-foreground">
+   492→                    ❤ {mod.health}/{mod.maxHealth}
+   493→                  </div>
+   494→                </div>
+   495→              </div>
+   496→
+   497→              {/* Level Bar */}
+   498→              <div className="flex gap-0.5 mb-2">
+   499→                {Array.from({ length: Math.min(def.maxLevel, 10) }).map((_, i) => (
+   500→                  <div
+   501→                    key={i}
+   502→                    className="h-1.5 flex-1 rounded-full"
+   503→                    style={{
+   504→                      background: i < mod.level ? accentColor : 'rgba(255,255,255,0.06)',
+   505→                      boxShadow: i < mod.level ? `0 0 4px ${accentColor}66` : 'none',
+   506→                    }}
+   507→                  />
+   508→                ))}
+   509→              </div>
+   510→
+   511→              {/* Building Progress or Upgrade Button */}
+   512→              {mod.building ? (
+   513→                <div>
+   514→                  <div className="h-2 rounded-full overflow-hidden" style={{ background: `${accentColor}15` }}>
+   515→                    <motion.div
+   516→                      className="h-full rounded-full build-shimmer"
+   517→                      style={{ width: `${Math.max(0, Math.min(100, progress * 100))}%`, background: accentColor }}
+   518→                      initial={false}
+   519→                      animate={{ width: `${Math.max(0, Math.min(100, progress * 100))}%` }}
+   520→                      transition={{ duration: 1 }}
+   521→                    />
+   522→                  </div>
+   523→                  <div className="text-[9px] font-mono text-center mt-1" style={{ color: accentColor }}>
+   524→                    ⏳ {formatTime(remaining)}
+   525→                  </div>
+   526→                </div>
+   527→              ) : (
+   528→                <button
+   529→                  onClick={() => {
+   530→                    const result = upgradeModule(mod.id);
+   531→                    setNotification(result.message);
+   532→                  }}
+   533→                  className="holo-btn w-full py-1.5 rounded-lg text-[11px] font-medium transition-all"
+   534→                  style={{
+   535→                    border: `1px solid ${accentColor}33`,
+   536→                    background: `${accentColor}0d`,
+   537→                    color: accentColor,
+   538→                  }}
+   539→                >
+   540→                  Улучшить → Ур. {mod.level + 1}
+   541→                </button>
+   542→              )}
+   543→            </motion.div>
+   544→          );
+   545→        })}
+   546→      </motion.div>
+   547→
+   548→      {/* Bottom Pipe */}
+   549→      <div className="relative h-2 rounded-full overflow-hidden" style={{ background: `${accentColor}15` }}>
+   550→        <motion.div
+   551→          className="absolute inset-y-0 right-0 rounded-full"
+   552→          style={{ background: `linear-gradient(270deg, transparent, ${accentColor}88, transparent)`, width: '40%' }}
+   553→          animate={{ x: ['100%', '-350%'] }}
+   554→          transition={{ duration: 3, repeat: Infinity, ease: 'linear' }}
+   555→        />
+   556→      </div>
+   557→    </motion.div>
+   558→  );
+   559→}
+   560→
+   561→// ============================================================
+   562→// 3. BIO LAB ROOM
+   563→// ============================================================
+   564→function BioLabRoom({ accentColor }: { accentColor: string }) {
+   565→  const modules = useGameStore(s => s.modules);
+   566→  const resources = useGameStore(s => s.resources);
+   567→  const collectResource = useGameStore(s => s.collectResource);
+   568→  const setNotification = useGameStore(s => s.setNotification);
+   569→  const lastCollectionTimes = useGameStore(s => s.lastCollectionTimes);
+   570→  const resourceRates = useGameStore(s => s.resourceRates);
+   571→
+   572→  const bioModule = modules.find(m => m.defId === 'bio_reactor');
+   573→  const [harvesting, setHarvesting] = useState(false);
+   574→  const [particles, setParticles] = useState<{ id: number; x: number; y: number }[]>([]);
+   575→  const [cooldownLeft, setCooldownLeft] = useState(0);
+   576→  const particleId = useRef(0);
+   577→
+   578→  useEffect(() => {
+   579→    if (!bioModule) return;
+   580→    const last = lastCollectionTimes[bioModule.id] || 0;
+   581→    const check = () => {
+   582→      const elapsed = Date.now() - last;
+   583→      setCooldownLeft(Math.max(0, COLLECTION_COOLDOWN - elapsed));
+   584→    };
+   585→    check();
+   586→    const interval = setInterval(check, 1000);
+   587→    return () => clearInterval(interval);
+   588→  }, [bioModule, lastCollectionTimes]);
+   589→
+   590→  const handleHarvest = useCallback(() => {
+   591→    if (!bioModule || bioModule.building) return;
+   592→    if (cooldownLeft > 0) {
+   593→      setNotification(`Ожидание: ${formatTime(cooldownLeft)}`);
+   594→      return;
+   595→    }
+   596→    setHarvesting(true);
+   597→    // Spawn particles
+   598→    const newParticles = Array.from({ length: 12 }).map(() => ({
+   599→      id: particleId.current++,
+   600→      x: (Math.random() - 0.5) * 120,
+   601→      y: (Math.random() - 0.5) * 120,
+   602→    }));
+   603→    setParticles(newParticles);
+   604→
+   605→    setTimeout(() => {
+   606→      const result = collectResource(bioModule.id);
+   607→      setNotification(result.message);
+   608→      setParticles([]);
+   609→      setHarvesting(false);
+   610→    }, 800);
+   611→  }, [bioModule, cooldownLeft, collectResource, setNotification]);
+   612→
+   613→  return (
+   614→    <motion.div className="space-y-4" variants={staggerContainer} initial="initial" animate="animate">
+   615→      {/* Bio-matter Stats */}
+   616→      <motion.div variants={staggerItem} className="grid grid-cols-2 gap-2">
+   617→        <div className="rounded-xl p-3 text-center" style={{ border: `1px solid ${accentColor}22`, background: 'rgba(0,0,0,0.35)' }}>
+   618→          <div className="text-[9px] font-mono opacity-50 mb-1" style={{ color: accentColor }}>БИОМАТЕРИЯ</div>
+   619→          <div className="text-lg font-bold" style={{ color: accentColor }}>{formatNumber(resources.bioMatter)}</div>
+   620→          <div className="text-[10px] text-green-400/70">+{resourceRates.bioMatter.toFixed(1)}/мин</div>
+   621→        </div>
+   622→        <div className="rounded-xl p-3 text-center" style={{ border: `1px solid ${accentColor}22`, background: 'rgba(0,0,0,0.35)' }}>
+   623→          <div className="text-[9px] font-mono opacity-50 mb-1" style={{ color: accentColor }}>БИОРЕАКТОР</div>
+   624→          <div className="text-lg font-bold" style={{ color: accentColor }}>
+   625→            {bioModule ? `Ур. ${bioModule.level}` : '—'}
+   626→          </div>
+   627→          <div className="text-[10px] text-muted-foreground">{bioModule ? 'Активен' : 'Не построен'}</div>
+   628→        </div>
+   629→      </motion.div>
+   630→
+   631→      {/* Reservoir / Harvest Area */}
+   632→      <motion.div variants={staggerItem} className="flex flex-col items-center py-4">
+   633→        <div className="relative">
+   634→          {/* Outer glow ring */}
+   635→          <motion.div
+   636→            className="absolute -inset-4 rounded-full"
+   637→            style={{
+   638→              background: `radial-gradient(circle, ${accentColor}15 0%, transparent 70%)`,
+   639→              border: `1px solid ${accentColor}15`,
+   640→            }}
+   641→            animate={{ scale: [1, 1.08, 1], opacity: [0.5, 0.8, 0.5] }}
+   642→            transition={{ duration: 3, repeat: Infinity }}
+   643→          />
+   644→          {/* Main reservoir */}
+   645→          <button
+   646→            onClick={handleHarvest}
+   647→            disabled={!bioModule || bioModule.building || cooldownLeft > 0 || harvesting}
+   648→            className="relative w-36 h-36 rounded-full flex flex-col items-center justify-center transition-all active:scale-95 disabled:opacity-50"
+   649→            style={{
+   650→              background: bioModule
+   651→                ? `radial-gradient(circle at 40% 40%, ${accentColor}44, ${accentColor}11 60%, rgba(0,0,0,0.3))`
+   652→                : 'radial-gradient(circle, rgba(30,30,30,0.8), rgba(0,0,0,0.5))',
+   653→              border: `2px solid ${bioModule ? accentColor + '55' : 'rgba(255,255,255,0.08)'}`,
+   654→              boxShadow: bioModule ? `0 0 40px ${accentColor}22, inset 0 0 30px ${accentColor}11` : 'none',
+   655→            }}
+   656→          >
+   657→            {/* Animated liquid surface */}
+   658→            {bioModule && !bioModule.building && (
+   659→              <motion.div
+   660→                className="absolute inset-2 rounded-full overflow-hidden"
+   661→                style={{ background: `${accentColor}15` }}
+   662→              >
+   663→                <motion.div
+   664→                  className="absolute w-[200%] h-[200%] -top-1/2 -left-1/2"
+   665→                  style={{
+   666→                    background: `radial-gradient(ellipse at 30% 50%, ${accentColor}33, transparent 60%)`,
+   667→                  }}
+   668→                  animate={{ rotate: [0, 360] }}
+   669→                  transition={{ duration: 12, repeat: Infinity, ease: 'linear' }}
+   670→                />
+   671→              </motion.div>
+   672→            )}
+   673→            <Leaf className="w-8 h-8 mb-1 relative z-10" style={{ color: bioModule ? accentColor : 'rgba(255,255,255,0.15)' }} />
+   674→            {bioModule ? (
+   675→              <>
+   676→                <span className="text-[10px] font-mono relative z-10" style={{ color: accentColor }}>
+   677→                  {cooldownLeft > 0 ? `⏳ ${formatTime(cooldownLeft)}` : 'СОБРАТЬ'}
+   678→                </span>
+   679→                <span className="text-[8px] text-muted-foreground relative z-10">Нажмите</span>
+   680→              </>
+   681→            ) : (
+   682→              <span className="text-[9px] text-muted-foreground/50 relative z-10">Нет реактора</span>
+   683→            )}
+   684→          </button>
+   685→
+   686→          {/* Harvest Particles */}
+   687→          <AnimatePresence>
+   688→            {particles.map(p => (
+   689→              <motion.div
+   690→                key={p.id}
+   691→                className="absolute w-2 h-2 rounded-full pointer-events-none"
+   692→                style={{ background: accentColor, left: '50%', top: '50%' }}
+   693→                initial={{ x: 0, y: 0, scale: 1, opacity: 1 }}
+   694→                animate={{ x: p.x, y: p.y, scale: 0, opacity: 0 }}
+   695→                exit={{ opacity: 0 }}
+   696→                transition={{ duration: 0.8, ease: 'easeOut' }}
+   697→              />
+   698→            ))}
+   699→          </AnimatePresence>
+   700→        </div>
+   701→      </motion.div>
+   702→
+   703→      {/* Tip */}
+   704→      <motion.div variants={staggerItem} className="text-center">
+   705→        <p className="text-[10px] text-muted-foreground italic">
+   706→          💡 Собирайте урожай каждые 5 минут для максимального бонуса
+   707→        </p>
+   708→      </motion.div>
+   709→
+   710→      {/* Hydroponic Farm Visual */}
+   711→      <motion.div variants={staggerItem}>
+   712→        <div className="text-[10px] font-mono mb-2 opacity-50" style={{ color: accentColor }}>
+   713→          ГИДРОПОННАЯ ФЕРМА
+   714→        </div>
+   715→        <div className="rounded-xl p-3 overflow-hidden" style={{ border: `1px solid ${accentColor}15`, background: 'rgba(0,0,0,0.3)' }}>
+   716→          <div className="grid grid-cols-6 gap-x-3 gap-y-2">
+   717→            {Array.from({ length: 24 }).map((_, i) => (
+   718→              <motion.div
+   719→                key={i}
+   720→                className="w-2.5 h-2.5 rounded-full mx-auto"
+   721→                style={{
+   722→                  background: accentColor,
+   723→                  opacity: 0.3 + Math.random() * 0.5,
+   724→                  boxShadow: `0 0 4px ${accentColor}44`,
+   725→                }}
+   726→                animate={{
+   727→                  opacity: [0.2, 0.6 + Math.random() * 0.4, 0.2],
+   728→                  scale: [0.9, 1.1, 0.9],
+   729→                }}
+   730→                transition={{
+   731→                  duration: 2 + Math.random() * 2,
+   732→                  repeat: Infinity,
+   733→                  delay: Math.random() * 2,
+   734→                }}
+   735→              />
+   736→            ))}
+   737→          </div>
+   738→        </div>
+   739→      </motion.div>
+   740→
+   741→      {/* Lab Equipment: Test Tubes */}
+   742→      <motion.div variants={staggerItem} className="flex justify-center gap-4 py-2">
+   743→        {[0, 1, 2, 3].map(i => (
+   744→          <motion.div
+   745→            key={i}
+   746→            className="flex flex-col items-center"
+   747→            animate={{ y: [0, -5 + i * 2, 0] }}
+   748→            transition={{ duration: 2.5 + i * 0.3, repeat: Infinity, ease: 'easeInOut', delay: i * 0.4 }}
+   749→          >
+   750→            <div
+   751→              className="w-4 rounded-t-full"
+   752→              style={{ height: `${20 + i * 8}px`, background: `linear-gradient(to top, ${accentColor}66, ${accentColor}22)`, border: `1px solid ${accentColor}33` }}
+   753→            />
+   754→            <div
+   755→              className="w-6 h-1.5 rounded-b-sm"
+   756→              style={{ background: `${accentColor}44`, border: `1px solid ${accentColor}33`, borderTop: 'none' }}
+   757→            />
+   758→          </motion.div>
+   759→        ))}
+   760→      </motion.div>
+   761→    </motion.div>
+   762→  );
+   763→}
+   764→
+   765→// ============================================================
+   766→// 4. HANGAR ROOM
+   767→// ============================================================
+   768→function HangarRoom({ accentColor }: { accentColor: string }) {
+   769→  const ships = useGameStore(s => s.ships);
+   770→  const resources = useGameStore(s => s.resources);
+   771→  const researchedTechs = useGameStore(s => s.researchedTechs);
+   772→  const buildShip = useGameStore(s => s.buildShip);
+   773→  const setNotification = useGameStore(s => s.setNotification);
+   774→  const modules = useGameStore(s => s.modules);
+   775→  const moduleSlots = useGameStore(s => s.moduleSlots);
+   776→  const stationLevel = useGameStore(s => s.stationLevel);
+   777→
+   778→  const hangarModule = modules.find(m => m.defId === 'hangar');
+   779→  const hangarLevel = hangarModule?.level || 0;
+   780→  const maxShips = 20 + hangarLevel * 5;
+   781→  const totalShips = ships.reduce((s, sh) => s + sh.quantity, 0);
+   782→
+   783→  const availableShips = useMemo(() => {
+   784→    return SHIP_DEFS.filter(def =>
+   785→      !def.unlockedByTech || researchedTechs.includes(def.unlockedByTech)
+   786→    );
+   787→  }, [researchedTechs]);
+   788→
+   789→  return (
+   790→    <motion.div className="space-y-4" variants={staggerContainer} initial="initial" animate="animate">
+   791→      {/* Hangar Capacity */}
+   792→      <motion.div variants={staggerItem} className="flex items-center gap-3">
+   793→        <div className="flex-1">
+   794→          <div className="flex justify-between text-[10px] font-mono mb-1">
+   795→            <span style={{ color: accentColor }}>АНГАР</span>
+   796→            <span className="text-muted-foreground">{totalShips}/{maxShips} кораблей</span>
+   797→          </div>
+   798→          <div className="h-2 rounded-full overflow-hidden" style={{ background: `${accentColor}15` }}>
+   799→            <motion.div
+   800→              className="h-full rounded-full"
+   801→              style={{
+   802→                width: `${Math.min(100, (totalShips / maxShips) * 100)}%`,
+   803→                background: totalShips / maxShips > 0.8 ? '#ef4444' : accentColor,
+   804→              }}
+   805→              initial={false}
+   806→            />
+   807→          </div>
+   808→        </div>
+   809→      </motion.div>
+   810→
+   811→      {/* Launch Pad Visual */}
+   812→      <motion.div variants={staggerItem} className="relative h-16 rounded-xl overflow-hidden" style={{ border: `1px solid ${accentColor}15`, background: 'rgba(0,0,0,0.2)' }}>
+   813→        {/* Striped floor pattern */}
+   814→        <div className="absolute inset-0 flex gap-1">
+   815→          {Array.from({ length: 20 }).map((_, i) => (
+   816→            <div
+   817→              key={i}
+   818→              className="flex-1"
+   819→              style={{
+   820→                background: i % 2 === 0 ? `${accentColor}08` : 'transparent',
+   821→                height: '100%',
+   822→              }}
+   823→            />
+   824→          ))}
+   825→        </div>
+   826→        {/* Perspective lines */}
+   827→        <div className="absolute inset-0 flex items-center justify-center">
+   828→          <motion.div
+   829→            className="text-[9px] font-mono tracking-[0.5em] opacity-30"
+   830→            style={{ color: accentColor }}
+   831→            animate={{ opacity: [0.15, 0.4, 0.15] }}
+   832→            transition={{ duration: 2, repeat: Infinity }}
+   833→          >
+   834→            ◄ СТАРТОВАЯ ПЛОЩАДКА ►
+   835→          </motion.div>
+   836→        </div>
+   837→      </motion.div>
+   838→
+   839→      {/* Owned Ships Grid */}
+   840→      <motion.div variants={staggerItem}>
+   841→        <div className="text-[10px] font-mono mb-2 opacity-50" style={{ color: accentColor }}>
+   842→          МОИ КОРАБЛИ
+   843→        </div>
+   844→        {ships.length === 0 ? (
+   845→          <div className="text-center py-6 text-muted-foreground text-sm">
+   846→            <Rocket className="w-10 h-10 mx-auto mb-2 opacity-30" />
+   847→            Ангар пуст. Постройте первый корабль!
+   848→          </div>
+   849→        ) : (
+   850→          <div className="grid grid-cols-2 gap-2 max-h-[35vh] overflow-y-auto pr-1">
+   851→            {ships.map(ship => {
+   852→              const def = SHIP_DEFS.find(d => d.id === ship.defId);
+   853→              if (!def) return null;
+   854→              const Icon = getIcon(def.icon);
+   855→              return (
+   856→                <motion.div
+   857→                  key={ship.id}
+   858→                  className="rounded-xl p-3"
+   859→                  style={{ border: `1px solid ${accentColor}22`, background: 'rgba(0,0,0,0.35)' }}
+   860→                  whileHover={{ scale: 1.02 }}
+   861→                >
+   862→                  {/* Ship silhouette */}
+   863→                  <div className="flex items-center justify-center py-2 mb-2 relative">
+   864→                    <div
+   865→                      className="absolute w-16 h-8 rounded-full opacity-10"
+   866→                      style={{ background: `radial-gradient(ellipse, ${accentColor}, transparent)` }}
+   867→                    />
+   868→                    <Icon className="w-10 h-10 relative z-10" style={{ color: accentColor, opacity: 0.8 }} />
+   869→                  </div>
+   870→                  <div className="text-center">
+   871→                    <div className="text-xs font-medium truncate">{ship.name}</div>
+   872→                    <div className="text-[10px] text-muted-foreground">{SHIP_CLASS_NAMES[def.class]}</div>
+   873→                    <div className="text-sm font-bold font-mono mt-0.5" style={{ color: accentColor }}>×{ship.quantity}</div>
+   874→                  </div>
+   875→                  <div className="flex justify-center gap-3 mt-1 text-[9px] text-muted-foreground">
+   876→                    <span>⚔{def.attack}</span>
+   877→                    <span>🛡{def.defense}</span>
+   878→                    <span>💨{def.speed}</span>
+   879→                  </div>
+   880→                </motion.div>
+   881→              );
+   882→            })}
+   883→          </div>
+   884→        )}
+   885→      </motion.div>
+   886→
+   887→      {/* Build Ship Section */}
+   888→      <motion.div variants={staggerItem}>
+   889→        <div className="text-[10px] font-mono mb-2 opacity-50" style={{ color: accentColor }}>
+   890→          ПОСТРОИТЬ КОРАБЛЬ
+   891→        </div>
+   892→        <div className="grid grid-cols-1 gap-2 max-h-[25vh] overflow-y-auto pr-1">
+   893→          {availableShips.map(def => {
+   894→            const Icon = getIcon(def.icon);
+   895→            const canAfford = Object.entries(def.cost).every(
+   896→              ([res, cost]) => (resources[res as keyof typeof resources] || 0) >= (cost || 0)
+   897→            );
+   898→            return (
+   899→              <div
+   900→                key={def.id}
+   901→                className="flex items-center gap-3 p-2.5 rounded-xl"
+   902→                style={{ border: `1px solid ${accentColor}15`, background: 'rgba(0,0,0,0.3)' }}
+   903→              >
+   904→                <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: `${accentColor}12` }}>
+   905→                  <Icon className="w-5 h-5" style={{ color: canAfford ? accentColor : 'rgba(255,255,255,0.2)' }} />
+   906→                </div>
+   907→                <div className="flex-1 min-w-0">
+   908→                  <div className="text-xs font-medium truncate">{def.name}</div>
+   909→                  <div className="text-[9px] text-muted-foreground">
+   910→                    {SHIP_CLASS_NAMES[def.class]} • ⚔{def.attack} 🛡{def.defense}
+   911→                  </div>
+   912→                  <div className="flex gap-2 mt-0.5 text-[9px] font-mono">
+   913→                    {Object.entries(def.cost).map(([res, cost]) => (
+   914→                      <span key={res} style={{ color: (resources[res as keyof typeof resources] || 0) >= (cost || 0) ? '#fbbf24' : '#ef4444' }}>
+   915→                        {RESOURCE_CONFIG[res as keyof typeof RESOURCE_CONFIG]?.name}: {cost}
+   916→                      </span>
+   917→                    ))}
+   918→                  </div>
+   919→                </div>
+   920→                <button
+   921→                  onClick={() => {
+   922→                    const result = buildShip(def.id);
+   923→                    setNotification(result.message);
+   924→                  }}
+   925→                  disabled={!canAfford}
+   926→                  className="holo-btn px-3 py-1.5 rounded-lg text-[10px] font-medium disabled:opacity-30"
+   927→                  style={{
+   928→                    border: `1px solid ${accentColor}33`,
+   929→                    background: `${accentColor}0d`,
+   930→                    color: accentColor,
+   931→                  }}
+   932→                >
+   933→                  Строить
+   934→                </button>
+   935→              </div>
+   936→            );
+   937→          })}
+   938→        </div>
+   939→      </motion.div>
+   940→    </motion.div>
+   941→  );
+   942→}
+   943→
+   944→// ============================================================
+   945→// 5. BAR ROOM
+   946→// ============================================================
+   947→const BAR_TIPS = [
+   948→  'В Андромеде-7 есть легенда о затерянном крейсере «Прометей». Говорят, его экипаж до сих пор летает между звёздами...',
+   949→  'Капитан Ворон из фракции Военных однажды уничтожил 50 пиратов за один бой. Его тактика изучается в академии.',
+   950→  'Биоматерия из Гидропоники v2 используется не только для энергии — из неё делают лучшие напитки в секторе!',
+   951→  'Древние Предшественники оставили артефакты в самых неожиданных местах. Иногда их можно найти даже в стенах станции...',
+   952→  'Торговый пост «Нексус» предлагает уникальные товары каждые 24 часа. Не забудьте заглянуть!',
+   953→  'Кристаллические аномалии опасны, но их ресурсы стоят того риска. Главное — мощный флот!',
+   954→  'Пси-энергия — самая загадочная сила в галактике. Учёные до сих пор не понимают, как она работает.',
+   955→];
+   956→
+   957→const BAR_VISITORS = [
+   958→  { name: 'Механик Грог', problem: 'Нужны минералы для ремонта турели. Пираты не дадут покоя...' },
+   959→  { name: 'Учёная Ли', problem: 'Исследую аномалию в секторе G-12. Не хватает кристаллов.' },
+   960→  { name: 'Пилот Рекс', problem: 'Мой истребитель в ремонте. Когда ангар будет готов?' },
+   961→  { name: 'Торговец Хасан', problem: 'Есть особое предложение, но оно подождёт до завтра.' },
+   962→];
+   963→
+   964→function BarRoom({ accentColor }: { accentColor: string }) {
+   965→  const [tip] = useState(() => BAR_TIPS[Math.floor(Math.random() * BAR_TIPS.length)]);
+   966→
+   967→  return (
+   968→    <motion.div className="space-y-4" variants={staggerContainer} initial="initial" animate="animate">
+   969→      {/* Cozy Lighting Glow from Bottom */}
+   970→      <div className="fixed bottom-0 left-0 right-0 pointer-events-none z-0" style={{ height: '200px', background: `linear-gradient(to top, ${accentColor}18, transparent)` }} />
+   971→
+   972→      {/* Floating Barman Drone */}
+   973→      <motion.div variants={staggerItem} className="flex justify-center py-4 relative z-10">
+   974→        <motion.div
+   975→          className="relative"
+   976→          animate={{ y: [0, -8, 0], rotate: [0, 2, -2, 0] }}
+   977→          transition={{ duration: 5, repeat: Infinity, ease: 'easeInOut' }}
+   978→        >
+   979→          <div
+   980→            className="w-16 h-16 rounded-2xl flex items-center justify-center"
+   981→            style={{
+   982→              background: `linear-gradient(135deg, ${accentColor}22, ${accentColor}08)`,
+   983→              border: `1px solid ${accentColor}44`,
+   984→              boxShadow: `0 0 30px ${accentColor}22, 0 8px 32px rgba(0,0,0,0.4)`,
+   985→            }}
+   986→          >
+   987→            <Wine className="w-7 h-7" style={{ color: accentColor }} />
+   988→          </div>
+   989→          <motion.div
+   990→            className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-6 h-1 rounded-full"
+   991→            style={{ background: `${accentColor}44`, filter: 'blur(2px)' }}
+   992→            animate={{ opacity: [0.4, 0.8, 0.4], scaleX: [0.8, 1.2, 0.8] }}
+   993→            transition={{ duration: 3, repeat: Infinity }}
+   994→          />
+   995→        </motion.div>
+   996→      </motion.div>
+   997→
+   998→      {/* Daily Tip / Lore */}
+   999→      <motion.div variants={staggerItem} className="relative z-10">
+  1000→        <div className="rounded-2xl p-4" style={{ border: `1px solid ${accentColor}22`, background: 'rgba(0,0,0,0.4)' }}>
+  1001→          <div className="flex items-center gap-2 mb-2">
+  1002→            <ScrollText className="w-4 h-4" style={{ color: accentColor }} />
+  1003→            <span className="text-[10px] font-mono" style={{ color: accentColor }}>ЗАПИСИ ИССЛЕДОВАТЕЛЯ</span>
+  1004→          </div>
+  1005→          <p className="text-xs text-foreground/80 leading-relaxed italic">
+  1006→            «{tip}»
+  1007→          </p>
+  1008→        </div>
+  1009→      </motion.div>
+  1010→
+  1011→      {/* Music Visualizer Bars */}
+  1012→      <motion.div variants={staggerItem} className="relative z-10">
+  1013→        <div className="text-[10px] font-mono mb-2 opacity-50" style={{ color: accentColor }}>
+  1014→          АТМОСФЕРА
+  1015→        </div>
+  1016→        <div className="flex items-end justify-center gap-1 h-12">
+  1017→          {Array.from({ length: 24 }).map((_, i) => (
+  1018→            <motion.div
+  1019→              key={i}
+  1020→              className="w-1.5 rounded-t-sm"
+  1021→              style={{ background: accentColor, opacity: 0.5 }}
+  1022→              animate={{
+  1023→                height: [4, 8 + Math.sin(i * 0.8) * 16 + Math.random() * 12, 4],
+  1024→              }}
+  1025→              transition={{
+  1026→                duration: 0.8 + Math.random() * 0.6,
+  1027→                repeat: Infinity,
+  1028→                ease: 'easeInOut',
+  1029→                delay: i * 0.05,
+  1030→              }}
+  1031→            />
+  1032→          ))}
+  1033→        </div>
+  1034→      </motion.div>
+  1035→
+  1036→      {/* Visitors */}
+  1037→      <motion.div variants={staggerItem} className="relative z-10">
+  1038→        <div className="text-[10px] font-mono mb-2 opacity-50" style={{ color: accentColor }}>
+  1039→          ПОСЕТИТЕЛИ
+  1040→        </div>
+  1041→        <div className="space-y-2">
+  1042→          {BAR_VISITORS.map((visitor, i) => (
+  1043→            <motion.div
+  1044→              key={visitor.name}
+  1045→              className="flex items-start gap-2 p-2.5 rounded-xl"
+  1046→              style={{ border: `1px solid ${accentColor}12`, background: 'rgba(0,0,0,0.25)' }}
+  1047→              initial={{ opacity: 0, x: 20 }}
+  1048→              animate={{ opacity: 1, x: 0 }}
+  1049→              transition={{ delay: 0.3 + i * 0.1 }}
+  1050→            >
+  1051→              <div
+  1052→                className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold"
+  1053→                style={{ background: `${accentColor}18`, border: `1px solid ${accentColor}33`, color: accentColor }}
+  1054→              >
+  1055→                {visitor.name[0]}
+  1056→              </div>
+  1057→              <div>
+  1058→                <div className="text-xs font-medium">{visitor.name}</div>
+  1059→                <div className="text-[10px] text-muted-foreground leading-relaxed">{visitor.problem}</div>
+  1060→              </div>
+  1061→            </motion.div>
+  1062→          ))}
+  1063→        </div>
+  1064→      </motion.div>
+  1065→
+  1066→      {/* Mini-game Teaser: Poker */}
+  1067→      <motion.div variants={staggerItem} className="relative z-10">
+  1068→        <div
+  1069→          className="rounded-xl p-4 text-center"
+  1070→          style={{ border: `1px solid ${accentColor}22`, background: 'rgba(0,0,0,0.3)' }}
+  1071→        >
+  1072→          <div className="flex items-center justify-center gap-2 mb-2">
+  1073→            <Spade className="w-5 h-5" style={{ color: accentColor }} />
+  1074→            <span className="text-sm font-medium" style={{ color: accentColor }}>Покер</span>
+  1075→          </div>
+  1076→          <p className="text-[10px] text-muted-foreground mb-3">
+  1077→            Классическая космическая карточная игра с ставками на осколки
+  1078→          </p>
+  1079→          <div
+  1080→            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-mono opacity-40 cursor-not-allowed"
+  1081→            style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}
+  1082→          >
+  1083→            <Lock className="w-3 h-3" />
+  1084→            Скоро
+  1085→          </div>
+  1086→        </div>
+  1087→      </motion.div>
+  1088→    </motion.div>
+  1089→  );
+  1090→}
+  1091→
+  1092→// Spade icon (not in lucide)
+  1093→function Spade({ className, style }: { className?: string; style?: React.CSSProperties }) {
+  1094→  return (
+  1095→    <svg className={className} style={style} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+  1096→      <path d="M5 3l7 10 7-10" />
+  1097→      <path d="M12 13v8" />
+  1098→      <path d="M5 3c-3 0-5 3-5 7s2 7 5 7c1.5 0 2.8-.7 3.7-1.8L12 13l-1.3 2.2C9.8 16.3 8.5 17 7 17c-3 0-5-3-5-7s2-7 5-7z" />
+  1099→    </svg>
+  1100→  );
+  1101→}
+  1102→
+  1103→// ============================================================
+  1104→// 6. SERVER ROOM
+  1105→// ============================================================
+  1106→const HACK_COLORS = ['#ef4444', '#22c55e', '#3b82f6', '#fbbf24'];
+  1107→
+  1108→function ServerRoom({ accentColor }: { accentColor: string }) {
+  1109→  const sciencePoints = useGameStore(s => s.sciencePoints);
+  1110→  const scienceRate = useGameStore(s => s.scienceRate);
+  1111→  const researchedTechs = useGameStore(s => s.researchedTechs);
+  1112→  const setNotification = useGameStore(s => s.setNotification);
+  1113→
+  1114→  // Hacking mini-game state
+  1115→  const [hackingSequence, setHackingSequence] = useState<number[]>([]);
+  1116→  const [playerSequence, setPlayerSequence] = useState<number[]>([]);
+  1117→  const [isShowingSequence, setIsShowingSequence] = useState(false);
+  1118→  const [hackingActive, setHackingActive] = useState(false);
+  1119→  const [hackingResult, setHackingResult] = useState<'success' | 'fail' | null>(null);
+  1120→  const [activeBtn, setActiveBtn] = useState<number | null>(null);
+  1121→  const showingRef = useRef(false);
+  1122→
+  1123→  const generateSequence = useCallback(() => {
+  1124→    const seq: number[] = [];
+  1125→    for (let i = 0; i < 4; i++) seq.push(Math.floor(Math.random() * 4));
+  1126→    return seq;
+  1127→  }, []);
+  1128→
+  1129→  const startHack = useCallback(() => {
+  1130→    const seq = generateSequence();
+  1131→    setHackingSequence(seq);
+  1132→    setPlayerSequence([]);
+  1133→    setHackingActive(true);
+  1134→    setHackingResult(null);
+  1135→    setIsShowingSequence(true);
+  1136→
+  1137→    // Show sequence
+  1138→    showingRef.current = true;
+  1139→    seq.forEach((colorIdx, i) => {
+  1140→      setTimeout(() => {
+  1141→        setActiveBtn(colorIdx);
+  1142→        setTimeout(() => setActiveBtn(null), 400);
+  1143→      }, i * 700 + 500);
+  1144→    });
+  1145→    setTimeout(() => {
+  1146→      setIsShowingSequence(false);
+  1147→      showingRef.current = false;
+  1148→    }, seq.length * 700 + 1000);
+  1149→  }, [generateSequence]);
+  1150→
+  1151→  const handleHackPress = useCallback((idx: number) => {
+  1152→    if (isShowingSequence || hackingResult) return;
+  1153→
+  1154→    const newSeq = [...playerSequence, idx];
+  1155→    setPlayerSequence(newSeq);
+  1156→    setActiveBtn(idx);
+  1157→    setTimeout(() => setActiveBtn(null), 200);
+  1158→
+  1159→    const currentStep = newSeq.length - 1;
+  1160→    if (newSeq[currentStep] !== hackingSequence[currentStep]) {
+  1161→      setHackingResult('fail');
+  1162→      setNotification('❌ Взлом провален! Попробуйте снова.');
+  1163→      setTimeout(() => setHackingActive(false), 1500);
+  1164→      return;
+  1165→    }
+  1166→
+  1167→    if (newSeq.length === hackingSequence.length) {
+  1168→      setHackingResult('success');
+  1169→      // Award science points directly via zustand setState
+  1170→      useGameStore.setState(s => ({ sciencePoints: s.sciencePoints + 20 }));
+  1171→      setNotification('🔓 Терминал взломан! +20 очков науки');
+  1172→      setTimeout(() => setHackingActive(false), 1500);
+  1173→    }
+  1174→  }, [isShowingSequence, hackingResult, playerSequence, hackingSequence, setNotification]);
+  1175→
+  1176→  const researchedCount = researchedTechs.length;
+  1177→  const totalTechs = TECH_DEFS.length;
+  1178→
+  1179→  return (
+  1180→    <motion.div className="space-y-4" variants={staggerContainer} initial="initial" animate="animate">
+  1181→      {/* Matrix Rain Background */}
+  1182→      <div className="fixed inset-0 pointer-events-none overflow-hidden opacity-[0.06] z-0">
+  1183→        <MatrixRain />
+  1184→      </div>
+  1185→
+  1186→      {/* Science Points Display */}
+  1187→      <motion.div variants={staggerItem} className="relative z-10">
+  1188→        <div
+  1189→          className="rounded-2xl p-4 text-center"
+  1190→          style={{
+  1191→            border: `1px solid ${accentColor}33`,
+  1192→            background: 'rgba(0,0,0,0.4)',
+  1193→            boxShadow: `0 0 30px ${accentColor}11`,
+  1194→          }}
+  1195→        >
+  1196→          <div className="text-[10px] font-mono mb-1" style={{ color: accentColor }}>
+  1197→            ОЧКИ НАУКИ
+  1198→          </div>
+  1199→          <motion.div
+  1200→            className="text-4xl font-bold font-mono"
+  1201→            style={{ color: accentColor }}
+  1202→            key={sciencePoints}
+  1203→            initial={{ scale: 1.1, color: '#ffffff' }}
+  1204→            animate={{ scale: 1, color: accentColor }}
+  1205→            transition={{ duration: 0.3 }}
+  1206→          >
+  1207→            {formatNumber(sciencePoints)}
+  1208→          </motion.div>
+  1209→          <div className="text-xs text-muted-foreground mt-1">
+  1210→            +{scienceRate}/мин • {researchedCount}/{totalTechs} технологий
+  1211→          </div>
+  1212→        </div>
+  1213→      </motion.div>
+  1214→
+  1215→      {/* Server Racks */}
+  1216→      <motion.div variants={staggerItem} className="relative z-10">
+  1217→        <div className="text-[10px] font-mono mb-2 opacity-50" style={{ color: accentColor }}>
+  1218→          СЕРВЕРНАЯ КОМНАТА
+  1219→        </div>
+  1220→        <div className="flex justify-center gap-1">
+  1221→          {Array.from({ length: 6 }).map((_, i) => (
+  1222→            <motion.div
+  1223→              key={i}
+  1224→              className="w-10 rounded-md overflow-hidden"
+  1225→              style={{
+  1226→                border: `1px solid ${accentColor}22`,
+  1227→                background: 'rgba(0,0,0,0.5)',
+  1228→              }}
+  1229→            >
+  1230→              {Array.from({ length: 5 }).map((_, j) => (
+  1231→                <motion.div
+  1232→                  key={j}
+  1233→                  className="w-full h-5 flex items-center justify-center"
+  1234→                  animate={{
+  1235→                    opacity: [0.3, 1, 0.3],
+  1236→                  }}
+  1237→                  transition={{
+  1238→                    duration: 1 + Math.random() * 2,
+  1239→                    repeat: Infinity,
+  1240→                    delay: Math.random() * 2 + i * 0.3,
+  1241→                  }}
+  1242→                >
+  1243→                  <div
+  1244→                    className="w-1.5 h-1.5 rounded-full"
+  1245→                    style={{
+  1246→                      background: [
+  1247→                        accentColor, '#22c55e', '#fbbf24', '#ef4444', '#06b6d4'
+  1248→                      ][(i + j) % 5],
+  1249→                      boxShadow: `0 0 4px ${accentColor}66`,
+  1250→                    }}
+  1251→                  />
+  1252→                </motion.div>
+  1253→              ))}
+  1254→            </motion.div>
+  1255→          ))}
+  1256→        </div>
+  1257→      </motion.div>
+  1258→
+  1259→      {/* Tech Tree Quick Access */}
+  1260→      <motion.div variants={staggerItem} className="relative z-10">
+  1261→        <div className="text-[10px] font-mono mb-2 opacity-50" style={{ color: accentColor }}>
+  1262→          ВЕТКИ ИССЛЕДОВАНИЙ
+  1263→        </div>
+  1264→        <div className="grid grid-cols-2 gap-2">
+  1265→          {[
+  1266→            { branch: 'military', name: 'Военные', icon: Swords, color: '#ef4444', count: TECH_DEFS.filter(t => t.branch === 'military' && researchedTechs.includes(t.id)).length, total: TECH_DEFS.filter(t => t.branch === 'military').length },
+  1267→            { branch: 'engineering', name: 'Инженерия', icon: Cog, color: '#ff6b35', count: TECH_DEFS.filter(t => t.branch === 'engineering' && researchedTechs.includes(t.id)).length, total: TECH_DEFS.filter(t => t.branch === 'engineering').length },
+  1268→            { branch: 'biological', name: 'Биология', icon: Leaf, color: '#22c55e', count: TECH_DEFS.filter(t => t.branch === 'biological' && researchedTechs.includes(t.id)).length, total: TECH_DEFS.filter(t => t.branch === 'biological').length },
+  1269→            { branch: 'psycho', name: 'Пси-энергия', icon: Brain, color: '#a855f7', count: TECH_DEFS.filter(t => t.branch === 'psycho' && researchedTechs.includes(t.id)).length, total: TECH_DEFS.filter(t => t.branch === 'psycho').length },
+  1270→          ].map(branch => {
+  1271→            const Icon = branch.icon;
+  1272→            return (
+  1273→              <div
+  1274→                key={branch.branch}
+  1275→                className="rounded-xl p-3"
+  1276→                style={{ border: `1px solid ${branch.color}22`, background: 'rgba(0,0,0,0.3)' }}
+  1277→              >
+  1278→                <div className="flex items-center gap-2 mb-1">
+  1279→                  <Icon className="w-4 h-4" style={{ color: branch.color }} />
+  1280→                  <span className="text-xs font-medium">{branch.name}</span>
+  1281→                </div>
+  1282→                <div className="flex gap-0.5">
+  1283→                  {Array.from({ length: branch.total }).map((_, i) => (
+  1284→                    <div
+  1285→                      key={i}
+  1286→                      className="h-1.5 flex-1 rounded-full"
+  1287→                      style={{
+  1288→                        background: i < branch.count ? branch.color : 'rgba(255,255,255,0.06)',
+  1289→                        boxShadow: i < branch.count ? `0 0 4px ${branch.color}44` : 'none',
+  1290→                      }}
+  1291→                    />
+  1292→                  ))}
+  1293→                </div>
+  1294→                <div className="text-[9px] text-muted-foreground mt-1 font-mono">{branch.count}/{branch.total}</div>
+  1295→              </div>
+  1296→            );
+  1297→          })}
+  1298→        </div>
+  1299→      </motion.div>
+  1300→
+  1301→      {/* Hacking Mini-Game */}
+  1302→      <motion.div variants={staggerItem} className="relative z-10">
+  1303→        <div
+  1304→          className="rounded-2xl p-4"
+  1305→          style={{ border: `1px solid ${accentColor}22`, background: 'rgba(0,0,0,0.4)' }}
+  1306→        >
+  1307→          <div className="flex items-center gap-2 mb-3">
+  1308→            <Terminal className="w-4 h-4" style={{ color: accentColor }} />
+  1309→            <span className="text-xs font-medium" style={{ color: accentColor }}>ВЗЛОМ ТЕРМИНАЛА</span>
+  1310→            <span className="text-[9px] text-muted-foreground ml-auto">+20 науки</span>
+  1311→          </div>
+  1312→
+  1313→          {!hackingActive ? (
+  1314→            <button
+  1315→              onClick={startHack}
+  1316→              className="holo-btn w-full py-3 rounded-xl text-xs font-mono font-medium"
+  1317→              style={{ border: `1px solid ${accentColor}33`, background: `${accentColor}0d`, color: accentColor }}
+  1318→            >
+  1319→              ▶ Начать взлом
+  1320→            </button>
+  1321→          ) : (
+  1322→            <div className="space-y-3">
+  1323→              {/* Progress indicator */}
+  1324→              <div className="flex gap-1.5 justify-center">
+  1325→                {hackingSequence.map((_, i) => (
+  1326→                  <div
+  1327→                    key={i}
+  1328→                    className="w-3 h-3 rounded-full"
+  1329→                    style={{
+  1330→                      background: i < playerSequence.length
+  1331→                        ? (playerSequence[i] === hackingSequence[i] ? '#22c55e' : '#ef4444')
+  1332→                        : i === playerSequence.length
+  1333→                          ? accentColor
+  1334→                          : 'rgba(255,255,255,0.08)',
+  1335→                      boxShadow: i < playerSequence.length && playerSequence[i] === hackingSequence[i]
+  1336→                        ? '0 0 8px #22c55e66'
+  1337→                        : 'none',
+  1338→                    }}
+  1339→                  />
+  1340→                ))}
+  1341→              </div>
+  1342→
+  1343→              {/* Color buttons */}
+  1344→              <div className="grid grid-cols-4 gap-2">
+  1345→                {HACK_COLORS.map((color, idx) => (
+  1346→                  <button
+  1347→                    key={idx}
+  1348→                    onClick={() => handleHackPress(idx)}
+  1349→                    className="h-14 rounded-xl transition-all active:scale-90"
+  1350→                    style={{
+  1351→                      background: activeBtn === idx ? color : `${color}33`,
+  1352→                      border: `2px solid ${activeBtn === idx ? color : `${color}44`}`,
+  1353→                      boxShadow: activeBtn === idx ? `0 0 20px ${color}66` : 'none',
+  1354→                    }}
+  1355→                    disabled={isShowingSequence || !!hackingResult}
+  1356→                  />
+  1357→                ))}
+  1358→              </div>
+  1359→
+  1360→              {isShowingSequence && (
+  1361→                <div className="text-center text-[10px] font-mono animate-pulse" style={{ color: accentColor }}>
+  1362→                  ◉ Запоминайте последовательность...
+  1363→                </div>
+  1364→              )}
+  1365→
+  1366→              {hackingResult === 'success' && (
+  1367→                <motion.div
+  1368→                  className="text-center text-sm font-bold text-green-400"
+  1369→                  initial={{ scale: 0.8, opacity: 0 }}
+  1370→                  animate={{ scale: 1, opacity: 1 }}
+  1371→                >
+  1372→                  ✓ Доступ получен!
+  1373→                </motion.div>
+  1374→              )}
+  1375→              {hackingResult === 'fail' && (
+  1376→                <motion.div
+  1377→                  className="text-center text-sm font-bold text-red-400"
+  1378→                  initial={{ scale: 0.8, opacity: 0 }}
+  1379→                  animate={{ scale: 1, opacity: 1 }}
+  1380→                >
+  1381→                  ✗ Доступ запрещён
+  1382→                </motion.div>
+  1383→              )}
+  1384→            </div>
+  1385→          )}
+  1386→        </div>
+  1387→      </motion.div>
+  1388→    </motion.div>
+  1389→  );
+  1390→}
+  1391→
+  1392→// Matrix Rain Effect
+  1393→function MatrixRain() {
+  1394→  const columns = 12;
+  1395→  return (
+  1396→    <div className="flex justify-between h-full w-full">
+  1397→      {Array.from({ length: columns }).map((_, i) => (
+  1398→        <div key={i} className="flex flex-col items-center" style={{ animationDelay: `${i * 0.3}s` }}>
+  1399→          {Array.from({ length: 20 }).map((_, j) => (
+  1400→            <motion.span
+  1401→              key={j}
+  1402→              className="text-[10px] font-mono leading-[20px]"
+  1403→              style={{ color: '#22c55e' }}
+  1404→              animate={{ opacity: [0, 0.8, 0] }}
+  1405→              transition={{
+  1406→                duration: 2 + Math.random() * 2,
+  1407→                repeat: Infinity,
+  1408→                delay: Math.random() * 4 + i * 0.5,
+  1409→              }}
+  1410→            >
+  1411→              {String.fromCharCode(0x30A0 + Math.floor(Math.random() * 96))}
+  1412→            </motion.span>
+  1413→          ))}
+  1414→        </div>
+  1415→      ))}
+  1416→    </div>
+  1417→  );
+  1418→}
+  1419→
+  1420→// ============================================================
+  1421→// 7. EMERGENCY CORRIDOR
+  1422→// ============================================================
+  1423→const ARTIFACT_LORE = [
+  1424→  { title: 'Осколок памяти', text: 'Фрагмент кристалла, хранящий воспоминания древней цивилизации. На поверхности мерцают звёзды, которых не существует ни в одном каталоге.' },
+  1425→  { title: 'Резонатор Предшественников', text: 'Устройство из неизвестного металла. Когда к нему прикасаешься, слышен тихий гул, похожий на голоса тысячи существ.' },
+  1426→  { title: 'Тёмный кодекс', text: 'Книга из органического материала. Страницы покрыты символами, которые меняются, когда на них смотришь. На обложке выгравировано: «Мы вернёмся».' },
+  1427→];
+  1428→
+  1429→const SECRET_MESSAGE = `«Те, кто пришёл до нас, построили сеть червоточин, соединяющую галактики. Они ушли не потому, что погибли — они эволюционировали. Станция «Форпост-7» построена на руинах их аванпоста. Каждая аномалия в этом секторе — осколок их наследия. Не ищите их артефакты ради власти. Ищите их ради понимания. Ибо когда они вернутся, вы должны быть готовы.» — Надпись на стене Аварийного коридора, переведена с прото-андромедийского`;
+  1430→
+  1431→function CorridorRoom({ accentColor }: { accentColor: string }) {
+  1432→  const stationLevel = useGameStore(s => s.stationLevel);
+  1433→  const [revealedArtifacts, setRevealedArtifacts] = useState<Set<number>>(new Set());
+  1434→  const [showSecret, setShowSecret] = useState(false);
+  1435→  const [flashOn, setFlashOn] = useState(true);
+  1436→
+  1437→  // Red flashing light
+  1438→  useEffect(() => {
+  1439→    const interval = setInterval(() => setFlashOn(f => !f), 800);
+  1440→    return () => clearInterval(interval);
+  1441→  }, []);
+  1442→
+  1443→  const handleArtifactClick = (idx: number) => {
+  1444→    const next = new Set(revealedArtifacts);
+  1445→    if (next.has(idx)) {
+  1446→      next.delete(idx);
+  1447→    } else {
+  1448→      next.add(idx);
+  1449→    }
+  1450→    setRevealedArtifacts(next);
+  1451→  };
+  1452→
+  1453→  // Check station level requirement
+  1454→  if (stationLevel < 3) {
+  1455→    return (
+  1456→      <motion.div className="flex flex-col items-center justify-center py-16" {...fadeIn}>
+  1457→        <motion.div animate={{ opacity: [0.3, 0.7, 0.3] }} transition={{ duration: 2, repeat: Infinity }}>
+  1458→          <AlertTriangle className="w-12 h-12 mb-3" style={{ color: accentColor }} />
+  1459→        </motion.div>
+  1460→        <p className="text-sm text-muted-foreground text-center max-w-xs">
+  1461→          Аварийный коридор заблокирован. Требуется <span className="font-bold" style={{ color: accentColor }}>уровень станции 3</span> для разблокировки.
+  1462→        </p>
+  1463→      </motion.div>
+  1464→    );
+  1465→  }
+  1466→
+  1467→  return (
+  1468→    <motion.div className="space-y-4" variants={staggerContainer} initial="initial" animate="animate">
+  1469→      {/* Red Flashing Lights */}
+  1470→      <div className="fixed top-0 left-0 right-0 h-1 pointer-events-none z-20"
+  1471→        style={{
+  1472→          background: flashOn ? `linear-gradient(90deg, transparent, ${accentColor}88, transparent)` : 'transparent',
+  1473→          transition: 'background 0.15s',
+  1474→        }}
+  1475→      />
+  1476→      <div className="fixed top-4 right-4 pointer-events-none z-20">
+  1477→        <motion.div
+  1478→          className="w-3 h-3 rounded-full"
+  1479→          style={{
+  1480→            background: accentColor,
+  1481→            boxShadow: flashOn ? `0 0 20px ${accentColor}, 0 0 40px ${accentColor}66` : `0 0 5px ${accentColor}44`,
+  1482→          }}
+  1483→          animate={{ scale: flashOn ? 1.3 : 0.9 }}
+  1484→          transition={{ duration: 0.15 }}
+  1485→        />
+  1486→      </div>
+  1487→      <div className="fixed top-4 left-4 pointer-events-none z-20">
+  1488→        <motion.div
+  1489→          className="w-3 h-3 rounded-full"
+  1490→          style={{
+  1491→            background: accentColor,
+  1492→            boxShadow: flashOn ? `0 0 20px ${accentColor}, 0 0 40px ${accentColor}66` : `0 0 5px ${accentColor}44`,
+  1493→          }}
+  1494→          animate={{ scale: flashOn ? 1.3 : 0.9 }}
+  1495→          transition={{ duration: 0.15 }}
+  1496→        />
+  1497→      </div>
+  1498→
+  1499→      {/* Cables from ceiling */}
+  1500→      <div className="relative h-20 overflow-hidden pointer-events-none">
+  1501→        {Array.from({ length: 5 }).map((_, i) => (
+  1502→          <motion.div
+  1503→            key={i}
+  1504→            className="absolute w-px"
+  1505→            style={{
+  1506→              left: `${15 + i * 18}%`,
+  1507→              top: 0,
+  1508→              height: '100%',
+  1509→              background: `linear-gradient(to bottom, ${accentColor}44, transparent)`,
+  1510→              transform: `rotate(${(i % 2 === 0 ? -1 : 1) * (10 + i * 3)}deg)`,
+  1511→              transformOrigin: 'top center',
+  1512→            }}
+  1513→            animate={{ opacity: [0.2, 0.5, 0.2] }}
+  1514→            transition={{ duration: 3 + i, repeat: Infinity }}
+  1515→          />
+  1516→        ))}
+  1517→      </div>
+  1518→
+  1519→      {/* Warning Label */}
+  1520→      <motion.div variants={staggerItem} className="text-center">
+  1521→        <motion.div
+  1522→          className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-mono"
+  1523→          style={{
+  1524→            border: `1px solid ${accentColor}44`,
+  1525→            background: `${accentColor}11`,
+  1526→            color: accentColor,
+  1527→          }}
+  1528→          animate={{ opacity: [0.6, 1, 0.6] }}
+  1529→          transition={{ duration: 2, repeat: Infinity }}
+  1530→        >
+  1531→          <AlertTriangle className="w-3.5 h-3.5" />
+  1532→          ОПАСНАЯ ЗОНА • УРОВЕНЬ ДОСТУПА: МАКСИМАЛЬНЫЙ
+  1533→        </motion.div>
+  1534→      </motion.div>
+  1535→
+  1536→      {/* Artifact Hotspots */}
+  1537→      <motion.div variants={staggerItem}>
+  1538→        <div className="text-[10px] font-mono mb-3 opacity-50" style={{ color: accentColor }}>
+  1539→          ОБНАРУЖЕННЫЕ АРТЕФАКТЫ
+  1540→        </div>
+  1541→        <div className="space-y-3">
+  1542→          {ARTIFACT_LORE.map((artifact, i) => (
+  1543→            <motion.div
+  1544→              key={i}
+  1545→              className="rounded-xl overflow-hidden"
+  1546→              style={{ border: `1px solid ${accentColor}22`, background: 'rgba(0,0,0,0.4)' }}
+  1547→              layout
+  1548→            >
+  1549→              <button
+  1550→                onClick={() => handleArtifactClick(i)}
+  1551→                className="w-full p-3 flex items-center gap-3 text-left"
+  1552→              >
+  1553→                <motion.div
+  1554→                  className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
+  1555→                  style={{
+  1556→                    background: revealedArtifacts.has(i) ? `${accentColor}22` : 'rgba(255,255,255,0.03)',
+  1557→                    border: `1px solid ${revealedArtifacts.has(i) ? `${accentColor}44` : 'rgba(255,255,255,0.06)'}`,
+  1558→                  }}
+  1559→                  whileTap={{ scale: 0.95 }}
+  1560→                >
+  1561→                  {revealedArtifacts.has(i) ? (
+  1562→                    <Gem className="w-5 h-5" style={{ color: accentColor }} />
+  1563→                  ) : (
+  1564→                    <Search className="w-5 h-5" style={{ color: 'rgba(255,255,255,0.15)' }} />
+  1565→                  )}
+  1566→                </motion.div>
+  1567→                <div className="flex-1 min-w-0">
+  1568→                  <div className="text-xs font-medium" style={{ color: revealedArtifacts.has(i) ? accentColor : 'rgba(255,255,255,0.4)' }}>
+  1569→                    {revealedArtifacts.has(i) ? artifact.title : 'Неизвестный объект'}
+  1570→                  </div>
+  1571→                  <div className="text-[10px] text-muted-foreground">
+  1572→                    {revealedArtifacts.has(i) ? 'Изучен' : 'Нажмите для исследования'}
+  1573→                  </div>
+  1574→                </div>
+  1575→                <ChevronRight className={`w-4 h-4 transition-transform ${revealedArtifacts.has(i) ? 'rotate-90 text-muted-foreground' : 'text-muted-foreground/30'}`} />
+  1576→              </button>
+  1577→              <AnimatePresence>
+  1578→                {revealedArtifacts.has(i) && (
+  1579→                  <motion.div
+  1580→                    initial={{ height: 0, opacity: 0 }}
+  1581→                    animate={{ height: 'auto', opacity: 1 }}
+  1582→                    exit={{ height: 0, opacity: 0 }}
+  1583→                    className="overflow-hidden"
+  1584→                  >
+  1585→                    <div className="px-3 pb-3 pt-1">
+  1586→                      <div className="text-[11px] text-foreground/70 leading-relaxed italic border-t pt-2" style={{ borderColor: `${accentColor}15` }}>
+  1587→                        {artifact.text}
+  1588→                      </div>
+  1589→                    </div>
+  1590→                  </motion.div>
+  1591→                )}
+  1592→              </AnimatePresence>
+  1593→            </motion.div>
+  1594→          ))}
+  1595→        </div>
+  1596→      </motion.div>
+  1597→
+  1598→      {/* Secret Message on the Wall */}
+  1599→      <motion.div variants={staggerItem}>
+  1600→        <button
+  1601→          onClick={() => setShowSecret(!showSecret)}
+  1602→          className="w-full text-left"
+  1603→        >
+  1604→          <div
+  1605→            className="rounded-xl p-3 flex items-center gap-3 transition-all"
+  1606→            style={{
+  1607→              border: `1px solid ${accentColor}22`,
+  1608→              background: 'rgba(0,0,0,0.4)',
+  1609→            }}
+  1610→          >
+  1611→            <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: `${accentColor}15`, border: `1px solid ${accentColor}33` }}>
+  1612→              <Skull className="w-5 h-5" style={{ color: accentColor }} />
+  1613→            </div>
+  1614→            <div className="flex-1">
+  1615→              <div className="text-xs font-medium" style={{ color: accentColor }}>Стенная надпись</div>
+  1616→              <div className="text-[10px] text-muted-foreground">
+  1617→                {showSecret ? 'Нажмите, чтобы скрыть' : 'Загадочные символы на стене...'}
+  1618→              </div>
+  1619→            </div>
+  1620→            <motion.div animate={{ rotate: showSecret ? 90 : 0 }} transition={{ duration: 0.2 }}>
+  1621→              <ChevronRight className="w-4 h-4 text-muted-foreground" />
+  1622→            </motion.div>
+  1623→          </div>
+  1624→        </button>
+  1625→        <AnimatePresence>
+  1626→          {showSecret && (
+  1627→            <motion.div
+  1628→              initial={{ height: 0, opacity: 0 }}
+  1629→              animate={{ height: 'auto', opacity: 1 }}
+  1630→              exit={{ height: 0, opacity: 0 }}
+  1631→              className="overflow-hidden"
+  1632→            >
+  1633→              <div className="mt-2 rounded-xl p-4" style={{ border: `1px solid ${accentColor}15`, background: 'rgba(0,0,0,0.5)' }}>
+  1634→                <div className="text-[10px] font-mono mb-2" style={{ color: accentColor }}>
+  1635→                  ПЕРЕВОД С ПРОТО-АНДРОМЕДИЙСКОГО:
+  1636→                </div>
+  1637→                <p className="text-[11px] text-foreground/70 leading-relaxed italic">
+  1638→                  {SECRET_MESSAGE}
+  1639→                </p>
+  1640→              </div>
+  1641→            </motion.div>
+  1642→          )}
+  1643→        </AnimatePresence>
+  1644→      </motion.div>
+  1645→
+  1646→      {/* Bottom cables */}
+  1647→      <div className="relative h-8 overflow-hidden pointer-events-none">
+  1648→        {Array.from({ length: 3 }).map((_, i) => (
+  1649→          <div
+  1650→            key={i}
+  1651→            className="absolute w-px"
+  1652→            style={{
+  1653→              left: `${25 + i * 25}%`,
+  1654→              bottom: 0,
+  1655→              height: '100%',
+  1656→              background: `linear-gradient(to top, ${accentColor}33, transparent)`,
+  1657→              transform: `rotate(${(i % 2 === 0 ? 1 : -1) * 15}deg)`,
+  1658→              transformOrigin: 'bottom center',
+  1659→            }}
+  1660→          />
+  1661→        ))}
+  1662→      </div>
+  1663→    </motion.div>
+  1664→  );
+  1665→}
+  1666→
+  1667→// Gem icon for corridor
+  1668→function Gem({ className, style }: { className?: string; style?: React.CSSProperties }) {
+  1669→  return (
+  1670→    <svg className={className} style={style} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+  1671→      <path d="M6 3h12l4 6-10 13L2 9z" />
+  1672→      <path d="M11 3l-1 18" />
+  1673→      <path d="M2 9h20" />
+  1674→    </svg>
+  1675→  );
+  1676→}
+  1677→
+  1678→// Plus icon for engineering
+  1679→function Plus({ className, style }: { className?: string; style?: React.CSSProperties }) {
+  1680→  return (
+  1681→    <svg className={className} style={style} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+  1682→      <path d="M12 5v14" />
+  1683→      <path d="M5 12h14" />
+  1684→    </svg>
+  1685→  );
+  1686→}

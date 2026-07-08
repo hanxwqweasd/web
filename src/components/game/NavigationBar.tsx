@@ -3,19 +3,19 @@
 import { useGameStore } from '@/lib/game/store';
 import type { GameScreen } from '@/lib/game/types';
 import {
-  Satellite, FlaskConical, Rocket, Swords, Map, Gamepad2,
-  ShoppingBag, ScrollText, ChevronLeft
+  Satellite, FlaskConical, Rocket, Map,
+  ShoppingBag, Trophy, User, ChevronLeft
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const NAV_ITEMS: { id: GameScreen; icon: React.ComponentType<{ className?: string }>; label: string }[] = [
   { id: 'station', icon: Satellite, label: 'Станция' },
-  { id: 'techTree', icon: FlaskConical, label: 'Техно' },
   { id: 'fleet', icon: Rocket, label: 'Флот' },
+  { id: 'techTree', icon: FlaskConical, label: 'Техно' },
   { id: 'map', icon: Map, label: 'Карта' },
-  { id: 'minigames', icon: Gamepad2, label: 'Мини' },
+  { id: 'leaderboard', icon: Trophy, label: 'Топ' },
+  { id: 'profile', icon: User, label: 'Профиль' },
   { id: 'shop', icon: ShoppingBag, label: 'Магазин' },
-  { id: 'quests', icon: ScrollText, label: 'Задания' },
 ];
 
 export default function NavigationBar() {

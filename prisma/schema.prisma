@@ -1,9 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -13,20 +7,104 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  name      String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+model Player {
+  id                    String   @id @default(cuid())
+  telegramUserId        Int      @unique
+  username              String?
+  firstName             String   @default("Капитан")
+  lastName              String?
+  languageCode          String?
+  faction               String?
+  rating                Int      @default(1000)
+  level                 Int      @default(1)
+  stationLevel          Int      @default(1)
+  captainName           String   @default("Капитан")
+
+  // Resources
+  energy                Float    @default(500)
+  minerals              Float    @default(500)
+  bioMatter             Float    @default(200)
+  crystals              Float    @default(0)
+  starShards            Int      @default(0)
+  sciencePoints         Float    @default(0)
+
+  // Combat stats
+  pvpWins               Int      @default(0)
+  pvpLosses             Int      @default(0)
+  totalBattlesWon       Int      @default(0)
+  totalEnemiesDefeated  Int      @default(0)
+  totalMineralsMined    Int      @default(0)
+
+  // Progression
+  researchedTechCount   Int      @default(0)
+  moduleCount           Int      @default(0)
+  shipCount             Int      @default(0)
+  achievementCount      Int      @default(0)
+
+  // Referral system
+  referralCode          String   @unique
+  referredByCode        String?
+  referralCount         Int      @default(0)
+  totalReferralReward   Int      @default(0)
+
+  // Admin
+  isAdmin               Boolean  @default(false)
+  isBanned              Boolean  @default(false)
+  banReason             String?
+
+  // Full game state snapshot (JSON)
+  gameStateSnapshot     String?
+
+  // Last login
+  lastLoginAt           DateTime @default(now())
+  lastSaveAt            DateTime @default(now())
+
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  // Relations
+  referrals             Player[] @relation("Referrals")
+  referredBy            Player?  @relation("Referrals", fields: [referredByCode], references: [referralCode])
+  combatLog             CombatLog[]
+
+  @@index([rating(sort: Desc)])
+  @@index([level(sort: Desc)])
+  @@index([pvpWins(sort: Desc)])
+  @@index([totalBattlesWon(sort: Desc)])
 }
 
-model Post {
-  id        String   @id @default(cuid())
-  title     String
-  content   String?
-  published Boolean  @default(false)
-  authorId  String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+model CombatLog {
+  id              String   @id @default(cuid())
+  playerId        String
+  opponentId      String?
+  opponentName    String?
+  opponentLevel   Int      @default(1)
+  victory         Boolean
+  ratingChange    Int      @default(0)
+  resourcesGained String?  // JSON
+  shipsLost       Int      @default(0)
+  createdAt       DateTime @default(now())
+
+  player          Player   @relation(fields: [playerId], references: [id])
+
+  @@index([playerId])
+  @@index([createdAt(sort: Desc)])
+}
+
+model LeaderboardSnapshot {
+  id          String   @id @default(cuid())
+  periodType  String   // "daily", "weekly", "alltime"
+  periodKey   String   // "2024-01-15", "2024-W03", "all"
+  playerRank  Int
+  playerId    String
+  playerName  String
+  rating      Int
+  score       Int      // composite score
+  pvpWins     Int
+  level       Int
+  rewards     String?  // JSON of rewards given
+  createdAt   DateTime @default(now())
+
+  @@index([periodType, periodKey])
+  @@index([periodType, periodKey, playerRank])
 }

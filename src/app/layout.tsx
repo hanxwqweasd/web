@@ -33,6 +33,7 @@ export default function RootLayout({
       >
         {children}
         <Toaster />
+        <script src="https://telegram.org/js/telegram-web-app.js" defer />
       </body>
     </html>
   );

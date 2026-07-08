@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef } from 'react';
 import { useGameStore } from '@/lib/game/store';
 import type { GameScreen } from '@/lib/game/types';
+import { initTelegramWebApp, onInvoiceClosed, offInvoiceClosed, getTelegramUser, hapticFeedback } from '@/lib/telegram';
 import StarField from '@/components/game/StarField';
 import ResourceBar from '@/components/game/ResourceBar';
 import NavigationBar from '@/components/game/NavigationBar';
@@ -14,6 +15,9 @@ import MapView from '@/components/game/MapView';
 import MiniGames from '@/components/game/MiniGames';
 import ShopView from '@/components/game/ShopView';
 import QuestsView from '@/components/game/QuestsView';
+import ProfileView from '@/components/game/ProfileView';
+import LeaderboardView from '@/components/game/LeaderboardView';
+import AdminPanel from '@/components/game/AdminPanel';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Swords } from 'lucide-react';
 
@@ -37,6 +41,12 @@ function ScreenRenderer({ screen }: { screen: GameScreen }) {
       return <ShopView />;
     case 'quests':
       return <QuestsView />;
+    case 'profile':
+      return <ProfileView />;
+    case 'leaderboard':
+      return <LeaderboardView />;
+    case 'admin':
+      return <AdminPanel />;
     default:
       return <StationView />;
   }
@@ -174,6 +184,33 @@ export default function GamePage() {
   const faction = useGameStore(s => s.faction);
   const modules = useGameStore(s => s.modules);
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Initialize Telegram Web App on mount
+  useEffect(() => {
+    initTelegramWebApp();
+
+    const user = getTelegramUser();
+    if (user) {
+      console.log(`[Telegram] User: ${user.first_name} (@${user.username ?? 'N/A'}), ID: ${user.id}`);
+    }
+
+    // Listen for invoice_closed events (Stars payment confirmation)
+    const handleInvoiceClosed = (event: { status: string; payload?: string }) => {
+      console.log('[Telegram] invoice_closed:', event);
+      if (event.status === 'paid') {
+        hapticFeedback('success');
+        // Dispatch a custom event so ShopView can react
+        window.dispatchEvent(new CustomEvent('telegram-stars-paid', { detail: event.payload }));
+      } else if (event.status === 'failed') {
+        hapticFeedback('error');
+      }
+    };
+
+    onInvoiceClosed(handleInvoiceClosed);
+    return () => {
+      offInvoiceClosed(handleInvoiceClosed);
+    };
+  }, []);
 
   // Game tick every 2 seconds
   useEffect(() => {
