@@ -202,6 +202,13 @@ export default function GamePage() {
     if (user) {
       console.log(`[Telegram] User: ${user.first_name} (@${user.username ?? 'N/A'}), ID: ${user.id}`);
 
+      // Check for admin start_param to auto-open admin panel
+      const startParam = (window as any).Telegram?.WebApp?.initDataUnsafe?.start_param;
+      if (startParam === 'admin') {
+        console.log('[Telegram] Admin start_param detected, opening admin panel');
+        useGameStore.getState().setScreen('admin');
+      }
+
       // Register/update player in DB
       fetch('/api/player', {
         method: 'POST',
@@ -217,7 +224,6 @@ export default function GamePage() {
         if (data.isNew && data.player) {
           console.log(`[Player] New player registered: ${data.player.captainName}`);
           // Check if there's a referral code in start_param
-          const startParam = (window as any).Telegram?.WebApp?.initDataUnsafe?.start_param;
           if (startParam && startParam.startsWith('SD-')) {
             fetch('/api/player/referral', {
               method: 'POST',
