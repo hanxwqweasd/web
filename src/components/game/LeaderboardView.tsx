@@ -8,11 +8,10 @@ import { getTelegramUser, hapticFeedback } from '@/lib/telegram';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Trophy,
   Crown,
-  Medal,
   Swords,
   Star,
   Shield,
@@ -53,42 +52,6 @@ interface LeaderboardPlayer {
 interface MyRank {
   rank: number;
   total: number;
-}
-
-// ============================================
-// Fake Data Generator
-// ============================================
-function generateFakePlayers(type: string): LeaderboardPlayer[] {
-  const names = [
-    'Звёздный_Рыцарь', 'Туманность_Хантер', 'Космический_Волк',
-    'Нова_Страйкер', 'Орбитальный_Лорд', 'Пульсар_Разрушитель',
-    'Галактический_Фантом', 'Квантовый_Мечник', 'Нейтронная_Буря',
-    'Астероидный_Пират', 'Супернова_Командир', 'Парадокс_Пилот',
-    'Вакуумный_Рейдер', 'Терра_Страж', 'Хроно_Навигатор',
-    'Ионный_Берсерк', 'Магнитный_Охотник', 'Антиматерия_Лорд',
-    'Протонный_Стрелок', 'Сингулярность_Мастер',
-  ];
-  const factions: Array<'traders' | 'military' | 'scientists'> = ['traders', 'military', 'scientists'];
-
-  const players: LeaderboardPlayer[] = names.map((name, i) => {
-    const baseValue = type === 'rating' ? 2800 - i * 90
-      : type === 'level' ? 25 - i * 0.8
-      : type === 'pvp' ? 150 - i * 6
-      : 200 - i * 8;
-    return {
-      rank: i + 1,
-      name,
-      value: Math.max(Math.floor(baseValue + Math.random() * 40), 10),
-      faction: factions[i % 3],
-      level: Math.max(Math.floor(22 - i * 0.7 + Math.random() * 3), 1),
-    };
-  });
-
-  // Sort by value descending
-  players.sort((a, b) => b.value - a.value);
-  players.forEach((p, i) => { p.rank = i + 1; });
-
-  return players;
 }
 
 // ============================================
@@ -185,14 +148,12 @@ function Top3Podium({
               <span className="text-[10px] text-slate-600">Ур.{player.level}</span>
             </div>
 
-            {/* Reward for #1 */}
-            {player.rank === 1 && (
-              <div className="text-[9px] text-neon-yellow mt-1 text-center font-mono px-1">
-                {config.reward}
-              </div>
-            )}
+            {/* Reward display */}
+            <div className="text-[9px] mt-1 text-center font-mono px-1" style={{ color: config.color }}>
+              {config.reward}
+            </div>
 
-            {/* Challenge button (not for self, not top 3) */}
+            {/* Challenge button */}
             {!isMe && (
               <AlertDialog>
                 <AlertDialogTrigger asChild>
@@ -215,9 +176,9 @@ function Top3Podium({
                       ⚔️ Вызов на бой
                     </AlertDialogTitle>
                     <AlertDialogDescription className="text-slate-400 text-sm">
-                      Вызовить <span style={{ color: config.color }}>{player.name}</span> на PvP-битву?
+                      Вызвать <span style={{ color: config.color }}>{player.name}</span> на PvP-битву?
                       <br />
-                      <span className="text-[10px] text-slate-600">Победа принесёт +50 рейтинга, поражение: -30</span>
+                      <span className="text-[10px] text-slate-600">Победа: +50 рейтинга, поражение: -30</span>
                     </AlertDialogDescription>
                   </AlertDialogHeader>
                   <AlertDialogFooter className="flex-col gap-2 sm:flex-col">
@@ -257,13 +218,13 @@ function Top3Podium({
 function RankingsList({
   players,
   playerIsMe,
-  onChallenge,
 }: {
   players: LeaderboardPlayer[];
   playerIsMe: (id: number | undefined) => boolean;
-  onChallenge: (player: LeaderboardPlayer) => void;
 }) {
   const restPlayers = players.slice(3);
+
+  if (restPlayers.length === 0) return null;
 
   return (
     <ScrollArea className="max-h-[360px]">
@@ -339,7 +300,7 @@ function MyRankCard({ myRank }: { myRank: MyRank | null }) {
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      className="mx-3 mt-3 p-3 rounded-xl neon-border flex items-center justify-between"
+      className="mx-3 mt-3 mb-16 p-3 rounded-xl neon-border flex items-center justify-between"
       style={{
         background: isInTop3
           ? 'linear-gradient(135deg, rgba(251,191,36,0.1), rgba(251,191,36,0.03))'
@@ -363,113 +324,82 @@ function MyRankCard({ myRank }: { myRank: MyRank | null }) {
 }
 
 // ============================================
-// Main Leaderboard View
+// Main Leaderboard View — ONLY REAL PLAYERS
 // ============================================
 export default function LeaderboardView() {
   const [activeTab, setActiveTab] = useState('rating');
   const [players, setPlayers] = useState<LeaderboardPlayer[]>([]);
   const [myRank, setMyRank] = useState<MyRank | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const initializedRef = useRef(false);
-  const captainName = useGameStore(s => s.captainName);
-  const rating = useGameStore(s => s.rating);
-  const level = useGameStore(s => s.level);
-  const pvpWins = useGameStore(s => s.pvpWins);
-  const totalBattlesWon = useGameStore(s => s.totalBattlesWon);
+
   const faction = useGameStore(s => s.faction);
   const setScreen = useGameStore(s => s.setScreen);
 
   const fetchLeaderboard = useCallback((type: string) => {
-    setPlayers([]);
+    setLoading(true);
+    setError(null);
     fetch(`/api/leaderboard?type=${type}&limit=50`)
       .then((res) => res.json())
       .then((data) => {
-        if (data && Array.isArray(data.players) && data.players.length > 0) {
+        if (data && Array.isArray(data.players)) {
           setPlayers(data.players);
         } else {
-          // Fallback to fake data
-          const fake = generateFakePlayers(type);
-          // Inject current player
-          const myValue = type === 'rating' ? rating
-            : type === 'level' ? level
-            : type === 'pvp' ? pvpWins
-            : totalBattlesWon;
-          fake.push({
-            rank: 0,
-            name: captainName,
-            value: myValue,
-            faction: faction || 'military',
-            level,
-            telegramUserId: getTelegramUser()?.id ?? 123456789,
-          });
-          fake.sort((a, b) => b.value - a.value);
-          fake.forEach((p, i) => { p.rank = i + 1; });
-          setPlayers(fake);
+          setPlayers([]);
         }
       })
       .catch(() => {
-        const fake = generateFakePlayers(type);
-        const myValue = type === 'rating' ? rating
-          : type === 'level' ? level
-          : type === 'pvp' ? pvpWins
-          : totalBattlesWon;
-        fake.push({
-          rank: 0,
-          name: captainName,
-          value: myValue,
-          faction: faction || 'military',
-          level,
-          telegramUserId: getTelegramUser()?.id ?? 123456789,
-        });
-        fake.sort((a, b) => b.value - a.value);
-        fake.forEach((p, i) => { p.rank = i + 1; });
-        setPlayers(fake);
+        setError('Ошибка загрузки');
+        setPlayers([]);
       })
-      .finally(() => {});
-  }, [captainName, rating, level, pvpWins, totalBattlesWon, faction]);
+      .finally(() => setLoading(false));
+  }, []);
 
-  const fetchMyRank = useCallback(() => {
+  const fetchMyRank = useCallback((type: string) => {
     const telegramUser = getTelegramUser();
-    const telegramUserId = telegramUser?.id ?? 123456789;
-    fetch(`/api/leaderboard/me?telegramUserId=${telegramUserId}`)
+    if (!telegramUser) {
+      // Not in Telegram — try to find our rank from the list
+      const myEntry = players.find(p => {
+        return false; // We don't have a telegramUserId in non-Telegram mode
+      });
+      if (myEntry) {
+        setMyRank({ rank: myEntry.rank, total: players.length });
+      }
+      return;
+    }
+
+    fetch(`/api/leaderboard/me?telegramUserId=${telegramUser.id}`)
       .then((res) => res.json())
       .then((data) => {
-        if (data && data.rank) {
-          setMyRank({ rank: data.rank, total: data.total || 50 });
-        } else {
-          // Derive from fake data
-          const myId = telegramUserId;
-          const myEntry = players.find(p => p.telegramUserId === myId);
-          if (myEntry) {
-            setMyRank({ rank: myEntry.rank, total: players.length });
-          } else {
-            setMyRank({ rank: players.length + 1, total: players.length + 1 });
+        if (data && data.rating) {
+          const rankData = type === 'rating' ? data.rating
+            : type === 'level' ? data.level
+            : type === 'pvp' ? data.pvpWins
+            : data.battles;
+          if (rankData) {
+            setMyRank({ rank: rankData.rank, total: rankData.total });
           }
         }
       })
-      .catch(() => {
-        const myId = telegramUserId;
-        const myEntry = players.find(p => p.telegramUserId === myId);
-        if (myEntry) {
-          setMyRank({ rank: myEntry.rank, total: players.length });
-        } else {
-          setMyRank({ rank: players.length + 1, total: players.length + 1 });
-        }
-      });
+      .catch(() => {});
   }, [players]);
 
   useEffect(() => {
     if (!initializedRef.current) {
       initializedRef.current = true;
-      // Use setTimeout to avoid synchronous setState in effect
-      setTimeout(() => fetchLeaderboard('rating'), 0);
+      // Use microtask to avoid synchronous setState in effect
+      queueMicrotask(() => fetchLeaderboard('rating'));
     }
   }, [fetchLeaderboard]);
 
   useEffect(() => {
     if (players.length > 0) {
-      fetchMyRank();
+      queueMicrotask(() => fetchMyRank(activeTab));
+    } else {
+      queueMicrotask(() => setMyRank(null));
     }
-  }, [players, fetchMyRank]);
+  }, [players, activeTab, fetchMyRank]);
 
   const handleTabChange = useCallback((tab: string) => {
     setActiveTab(tab);
@@ -478,21 +408,18 @@ export default function LeaderboardView() {
 
   const playerIsMe = useCallback((id: number | undefined) => {
     if (!id) return false;
-    return id === (getTelegramUser()?.id ?? 123456789);
+    return id === getTelegramUser()?.id;
   }, []);
 
   const handleChallenge = useCallback((_player: LeaderboardPlayer) => {
-    // Navigate to fleet for PvP
     setScreen('fleet');
   }, [setScreen]);
-
-  const loading = players.length === 0;
 
   const tabConfig = [
     { id: 'rating', label: 'Рейтинг', icon: Trophy },
     { id: 'level', label: 'Уровень', icon: Star },
     { id: 'pvp', label: 'PvP', icon: Swords },
-    { id: 'battles', label: 'Битвы', icon: Target },
+    { id: 'totalBattlesWon', label: 'Битвы', icon: Target },
   ];
 
   return (
@@ -534,10 +461,23 @@ export default function LeaderboardView() {
           <div className="flex items-center justify-center h-40">
             <Loader2 className="w-6 h-6 text-cyan-400 animate-spin" />
           </div>
-        ) : players.length > 0 ? (
+        ) : error ? (
+          <div className="flex flex-col items-center justify-center h-40 text-slate-600">
+            <Users className="w-8 h-8 mb-2" />
+            <span className="text-sm">{error}</span>
+          </div>
+        ) : players.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-40 text-slate-600">
+            <Users className="w-8 h-8 mb-2" />
+            <span className="text-sm mb-1">Пока нет игроков</span>
+            <span className="text-xs text-slate-700">Будьте первым в рейтинге!</span>
+          </div>
+        ) : (
           <>
             {/* Top 3 Podium */}
-            <Top3Podium players={players} onChallenge={handleChallenge} playerIsMe={playerIsMe} />
+            {players.length >= 3 && (
+              <Top3Podium players={players} onChallenge={handleChallenge} playerIsMe={playerIsMe} />
+            )}
 
             {/* Separator */}
             <div className="flex items-center gap-2 mb-2">
@@ -549,13 +489,8 @@ export default function LeaderboardView() {
             </div>
 
             {/* Full Rankings */}
-            <RankingsList players={players} onChallenge={handleChallenge} playerIsMe={playerIsMe} />
+            <RankingsList players={players} playerIsMe={playerIsMe} />
           </>
-        ) : (
-          <div className="flex flex-col items-center justify-center h-40 text-slate-600">
-            <Users className="w-8 h-8 mb-2" />
-            <span className="text-sm">Нет данных</span>
-          </div>
         )}
       </div>
 

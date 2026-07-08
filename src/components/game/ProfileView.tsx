@@ -31,22 +31,27 @@ import {
   Microscope,
   ChevronRight,
   Gift,
+  Loader2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
 // ============================================
 // Referral Types
 // ============================================
-interface ReferredFriend {
-  username: string;
-  joinedAt: string;
-  status: 'active' | 'inactive';
+interface ReferralFriend {
+  id: string;
+  firstName: string;
+  username: string | null;
+  createdAt: string;
+  level: number;
 }
 
 interface ReferralData {
-  code: string;
-  invitedCount: number;
-  friends: ReferredFriend[];
+  referralCode: string;
+  referralCount: number;
+  totalReferralReward: number;
+  referredBy: { firstName: string; username: string | null } | null;
+  referrals: ReferralFriend[];
 }
 
 // ============================================
@@ -62,8 +67,6 @@ const ICON_MAP: Record<string, React.ComponentType<{ className?: string; style?:
   Search: (props) => <Microscope {...props} />,
   Trophy: (props) => <Trophy {...props} />,
 };
-
-// Note: faction icons are rendered inline to avoid dynamic component creation during render
 
 // ============================================
 // Profile Header
@@ -97,9 +100,6 @@ function ProfileHeader() {
     }
     setEditing(false);
   }, [draftName, setCaptainName]);
-
-  // Member since — use the earliest localStorage entry timestamp
-  const memberSince = '2025.01.15';
 
   return (
     <motion.div
@@ -175,19 +175,17 @@ function ProfileHeader() {
         </div>
       </div>
 
-      {/* Member since + Telegram */}
-      <div className="flex items-center gap-3 text-xs text-slate-500">
-        <div className="flex items-center gap-1">
-          <Calendar className="w-3 h-3" />
-          <span>С {memberSince}</span>
+      {/* Telegram info */}
+      {telegramUser && (
+        <div className="flex items-center gap-3 text-xs text-slate-500">
+          {telegramUser.username && (
+            <div className="flex items-center gap-1">
+              <User className="w-3 h-3" />
+              <span>@{telegramUser.username}</span>
+            </div>
+          )}
         </div>
-        {telegramUser?.username && (
-          <div className="flex items-center gap-1">
-            <User className="w-3 h-3" />
-            <span>@{telegramUser.username}</span>
-          </div>
-        )}
-      </div>
+      )}
     </motion.div>
   );
 }
@@ -203,6 +201,8 @@ function StatsGrid() {
   const researchedTechs = useGameStore(s => s.researchedTechs);
   const ships = useGameStore(s => s.ships);
   const totalMineralsMined = useGameStore(s => s.totalMineralsMined);
+  const starShards = useGameStore(s => s.starShards);
+  const sciencePoints = useGameStore(s => s.sciencePoints);
 
   const totalShips = ships.reduce((sum, s) => sum + s.quantity, 0);
 
@@ -212,7 +212,7 @@ function StatsGrid() {
     { icon: Shield, label: 'Ур. станции', value: stationLevel, sub: '', color: '#00f0ff' },
     { icon: FlaskConical, label: 'Технологии', value: researchedTechs.length, sub: 'из 16', color: '#a855f7' },
     { icon: Rocket, label: 'Корабли', value: totalShips, sub: 'всего', color: '#22c55e' },
-    { icon: Diamond, label: 'Минералы', value: totalMineralsMined, sub: 'всего', color: '#06b6d4' },
+    { icon: Diamond, label: 'Осколки', value: starShards, sub: `Наука: ${Math.floor(sciencePoints)}`, color: '#06b6d4' },
   ];
 
   return (
@@ -246,53 +246,53 @@ function StatsGrid() {
 }
 
 // ============================================
-// Referral Section
+// Referral Section — REAL DATA ONLY
 // ============================================
 function ReferralSection() {
   const [referralData, setReferralData] = useState<ReferralData | null>(null);
   const [copied, setCopied] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const telegramUser = getTelegramUser();
-    const telegramUserId = telegramUser?.id ?? 123456789;
+    if (!telegramUser) {
+      queueMicrotask(() => {
+        setLoading(false);
+        setError('Доступно только в Telegram');
+      });
+      return;
+    }
 
-    fetch(`/api/player/referral?telegramUserId=${telegramUserId}`)
-      .then((res) => res.json())
+    fetch(`/api/player/referral?telegramUserId=${telegramUser.id}`)
+      .then((res) => {
+        if (!res.ok) throw new Error('Not found');
+        return res.json();
+      })
       .then((data) => {
-        if (data && data.code) {
-          setReferralData(data);
-        } else {
-          // Fallback demo data
-          setReferralData({
-            code: 'SD-A3F8K2',
-            invitedCount: 3,
-            friends: [
-              { username: 'cosmo_pilot', joinedAt: '2025-01-20', status: 'active' },
-              { username: 'nebula_hunter', joinedAt: '2025-01-22', status: 'active' },
-              { username: 'star_walker', joinedAt: '2025-02-01', status: 'inactive' },
-            ],
-          });
-        }
+        setReferralData({
+          referralCode: data.referralCode,
+          referralCount: data.referralCount,
+          totalReferralReward: data.totalReferralReward,
+          referredBy: data.referredBy,
+          referrals: (data.referrals || []).map((r: ReferralFriend) => ({
+            id: r.id,
+            firstName: r.firstName,
+            username: r.username,
+            createdAt: r.createdAt,
+            level: r.level,
+          })),
+        });
       })
       .catch(() => {
-        // Demo fallback
-        setReferralData({
-          code: 'SD-A3F8K2',
-          invitedCount: 3,
-          friends: [
-            { username: 'cosmo_pilot', joinedAt: '2025-01-20', status: 'active' },
-            { username: 'nebula_hunter', joinedAt: '2025-01-22', status: 'active' },
-            { username: 'star_walker', joinedAt: '2025-02-01', status: 'inactive' },
-          ],
-        });
+        setError('Не удалось загрузить данные');
       })
       .finally(() => setLoading(false));
   }, []);
 
   const copyReferralLink = useCallback(() => {
     if (!referralData) return;
-    const link = `https://t.me/StarDominionBot/game?startapp=${referralData.code}`;
+    const link = `https://t.me/StarDominionBot/game?startapp=${referralData.referralCode}`;
     navigator.clipboard.writeText(link).then(() => {
       setCopied(true);
       hapticFeedback('success');
@@ -309,12 +309,27 @@ function ReferralSection() {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ delay: 0.2 }}
-        className="p-4 rounded-xl neon-border animate-pulse"
+        className="p-4 rounded-xl neon-border"
         style={{ background: 'rgba(15, 15, 35, 0.85)' }}
       >
-        <div className="h-4 bg-slate-800 rounded w-32 mb-3" />
-        <div className="h-8 bg-slate-800 rounded w-full mb-3" />
-        <div className="h-3 bg-slate-800 rounded w-48" />
+        <div className="flex items-center justify-center h-12">
+          <Loader2 className="w-5 h-5 text-cyan-400 animate-spin" />
+        </div>
+      </motion.div>
+    );
+  }
+
+  if (error) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.2 }}
+        className="p-4 rounded-xl neon-border text-center"
+        style={{ background: 'rgba(15, 15, 35, 0.85)' }}
+      >
+        <Gift className="w-5 h-5 text-slate-600 mx-auto mb-1" />
+        <span className="text-xs text-slate-500">{error}</span>
       </motion.div>
     );
   }
@@ -341,12 +356,12 @@ function ReferralSection() {
       >
         <div>
           <div className="text-[10px] text-slate-500 mb-0.5">Ваш код</div>
-          <div className="font-mono text-sm neon-text-cyan">{referralData.code}</div>
+          <div className="font-mono text-sm neon-text-cyan">{referralData.referralCode}</div>
         </div>
         <Button
           size="sm"
           variant="ghost"
-          onClick={() => { copyReferralLink(); }}
+          onClick={copyReferralLink}
           className="h-8 px-3 text-xs holo-btn text-cyan-300 hover:text-cyan-200"
         >
           {copied ? <Check className="w-4 h-4 text-neon-green" /> : <Copy className="w-4 h-4" />}
@@ -356,50 +371,55 @@ function ReferralSection() {
       {/* Stats */}
       <div className="flex items-center gap-1.5 mb-2">
         <Users className="w-3.5 h-3.5 text-slate-500" />
-        <span className="text-xs text-slate-400">Приглашено: <span className="font-mono neon-text-cyan">{referralData.invitedCount}</span> друзей</span>
+        <span className="text-xs text-slate-400">Приглашено: <span className="font-mono neon-text-cyan">{referralData.referralCount}</span> друзей</span>
       </div>
+
+      {/* Who referred you */}
+      {referralData.referredBy && (
+        <div className="text-[10px] text-slate-500 p-2 rounded-lg mb-2" style={{ background: 'rgba(251, 191, 36, 0.06)', border: '1px solid rgba(251, 191, 36, 0.12)' }}>
+          👤 Пригласил: <span className="text-neon-yellow">{referralData.referredBy.firstName}{referralData.referredBy.username ? ` (@${referralData.referredBy.username})` : ''}</span>
+        </div>
+      )}
 
       {/* Reward info */}
       <div
         className="text-[10px] text-slate-500 p-2 rounded-lg mb-3"
         style={{ background: 'rgba(34, 197, 94, 0.06)', border: '1px solid rgba(34, 197, 94, 0.12)' }}
       >
-        🎁 Награда за каждого: <span className="text-neon-green">+200 минералов</span>, <span className="text-neon-yellow">+100 энергии</span>, <span className="text-neon-purple">+50 осколков</span>
+        🎁 Награда за каждого друга: <span className="text-neon-green">+200 минералов</span>, <span className="text-neon-yellow">+100 энергии</span>, <span className="text-neon-purple">+50 осколков</span>
       </div>
 
       {/* Referred friends list */}
-      {referralData.friends.length > 0 && (
+      {referralData.referrals.length > 0 && (
         <div className="space-y-1.5">
-          {referralData.friends.map((friend, i) => (
+          {referralData.referrals.map((friend) => (
             <div
-              key={i}
+              key={friend.id}
               className="flex items-center justify-between px-2.5 py-1.5 rounded-lg"
               style={{ background: 'rgba(255,255,255,0.02)' }}
             >
               <div className="flex items-center gap-2">
                 <div
                   className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold"
-                  style={{
-                    background: friend.status === 'active' ? 'rgba(34, 197, 94, 0.2)' : 'rgba(239, 68, 68, 0.2)',
-                    color: friend.status === 'active' ? '#22c55e' : '#ef4444',
-                  }}
+                  style={{ background: 'rgba(34, 197, 94, 0.2)', color: '#22c55e' }}
                 >
-                  {friend.username.charAt(0).toUpperCase()}
+                  {friend.firstName.charAt(0).toUpperCase()}
                 </div>
                 <div>
-                  <div className="text-xs font-mono text-slate-300">@{friend.username}</div>
-                  <div className="text-[10px] text-slate-600">{friend.joinedAt}</div>
+                  <div className="text-xs font-mono text-slate-300">
+                    {friend.username ? `@${friend.username}` : friend.firstName}
+                  </div>
+                  <div className="text-[10px] text-slate-600">
+                    Ур.{friend.level} · {new Date(friend.createdAt).toLocaleDateString('ru-RU')}
+                  </div>
                 </div>
               </div>
               <Badge
                 variant="outline"
                 className="text-[9px] px-1.5 py-0"
-                style={{
-                  borderColor: friend.status === 'active' ? 'rgba(34, 197, 94, 0.4)' : 'rgba(239, 68, 68, 0.4)',
-                  color: friend.status === 'active' ? '#22c55e' : '#ef4444',
-                }}
+                style={{ borderColor: 'rgba(34, 197, 94, 0.4)', color: '#22c55e' }}
               >
-                {friend.status === 'active' ? 'Активен' : 'Неактивен'}
+                Активен
               </Badge>
             </div>
           ))}

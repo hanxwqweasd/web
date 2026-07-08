@@ -184,14 +184,45 @@ export default function GamePage() {
   const faction = useGameStore(s => s.faction);
   const modules = useGameStore(s => s.modules);
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const saveRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Initialize Telegram Web App on mount
+  // Initialize Telegram Web App on mount + register player + handle referrals
   useEffect(() => {
     initTelegramWebApp();
 
     const user = getTelegramUser();
     if (user) {
       console.log(`[Telegram] User: ${user.first_name} (@${user.username ?? 'N/A'}), ID: ${user.id}`);
+
+      // Register/update player in DB
+      fetch('/api/player', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          telegramUserId: user.id,
+          username: user.username,
+          firstName: user.first_name,
+          lastName: user.last_name,
+          languageCode: user.language_code,
+        }),
+      }).then(res => res.json()).then(data => {
+        if (data.isNew && data.player) {
+          console.log(`[Player] New player registered: ${data.player.captainName}`);
+          // Check if there's a referral code in start_param
+          const startParam = (window as any).Telegram?.WebApp?.initDataUnsafe?.start_param;
+          if (startParam && startParam.startsWith('SD-')) {
+            fetch('/api/player/referral', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ telegramUserId: user.id, referralCode: startParam }),
+            }).then(r => r.json()).then(refData => {
+              if (refData.success) {
+                setNotification(`🎁 Реферал: ${refData.message}`);
+              }
+            }).catch(() => {});
+          }
+        }
+      }).catch(() => {});
     }
 
     // Listen for invoice_closed events (Stars payment confirmation)
@@ -199,8 +230,30 @@ export default function GamePage() {
       console.log('[Telegram] invoice_closed:', event);
       if (event.status === 'paid') {
         hapticFeedback('success');
-        // Dispatch a custom event so ShopView can react
         window.dispatchEvent(new CustomEvent('telegram-stars-paid', { detail: event.payload }));
+        // Refresh resources from DB after Stars payment
+        const tgUser = getTelegramUser();
+        if (tgUser) {
+          setTimeout(() => {
+            fetch(`/api/player?telegramUserId=${tgUser.id}`)
+              .then(r => r.json())
+              .then(data => {
+                if (data.player) {
+                  const p = data.player;
+                  useGameStore.setState({
+                    resources: {
+                      energy: p.energy,
+                      minerals: p.minerals,
+                      bioMatter: p.bioMatter,
+                      crystals: p.crystals,
+                    },
+                    starShards: p.starShards,
+                  });
+                  setNotification('⭐ Оплата получена! Ресурсы начислены.');
+                }
+              }).catch(() => {});
+          }, 1000);
+        }
       } else if (event.status === 'failed') {
         hapticFeedback('error');
       }
@@ -221,6 +274,58 @@ export default function GamePage() {
       if (tickRef.current) clearInterval(tickRef.current);
     };
   }, [tick]);
+
+  // Auto-save game state to DB every 30 seconds
+  useEffect(() => {
+    saveRef.current = setInterval(() => {
+      const user = getTelegramUser();
+      if (!user) return;
+
+      const state = useGameStore.getState();
+      const totalShips = state.ships.reduce((sum, s) => sum + s.quantity, 0);
+
+      fetch('/api/player', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          telegramUserId: user.id,
+          username: getTelegramUser()?.username,
+          firstName: getTelegramUser()?.first_name,
+          faction: state.faction,
+          captainName: state.captainName,
+          rating: state.rating,
+          level: state.level,
+          stationLevel: state.stationLevel,
+          energy: Math.floor(state.resources.energy),
+          minerals: Math.floor(state.resources.minerals),
+          bioMatter: Math.floor(state.resources.bioMatter),
+          crystals: Math.floor(state.resources.crystals),
+          starShards: state.starShards,
+          sciencePoints: Math.floor(state.sciencePoints),
+          pvpWins: state.pvpWins,
+          pvpLosses: state.pvpLosses,
+          totalBattlesWon: state.totalBattlesWon,
+          totalEnemiesDefeated: state.totalEnemiesDefeated,
+          totalMineralsMined: state.totalMineralsMined,
+          researchedTechCount: state.researchedTechs.length,
+          moduleCount: state.modules.length,
+          shipCount: totalShips,
+          achievementCount: state.achievements.length,
+          gameStateSnapshot: JSON.stringify({
+            researchedTechs: state.researchedTechs,
+            unlockedRooms: state.unlockedRooms,
+            ships: state.ships,
+            squadrons: state.squadrons,
+            modules: state.modules,
+          }),
+        }),
+      }).catch(() => {});
+    }, 30000);
+
+    return () => {
+      if (saveRef.current) clearInterval(saveRef.current);
+    };
+  }, []);
 
   // Show tutorial after faction selection if not completed
   const showTutorial = tutorialCompleted === false && faction !== null && modules.length > 0;

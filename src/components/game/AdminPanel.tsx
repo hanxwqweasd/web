@@ -530,7 +530,7 @@ function TopRewardTab() {
   useEffect(() => {
     fetch('/api/leaderboard?type=rating&limit=10')
       .then(r => r.json())
-      .then(d => setLeaderboard(d.leaderboard || []))
+      .then(d => setLeaderboard(d.players || []))
       .catch(() => {});
   }, []);
 

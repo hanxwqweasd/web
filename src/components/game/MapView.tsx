@@ -21,7 +21,7 @@ import {
   Anchor,
   CircleDot,
   Target,
-  ChevronLeft,
+  X,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -52,6 +52,8 @@ const TYPE_LABELS: Record<string, string> = {
 
 // Connection threshold — nodes within this distance get connected
 const CONNECTION_DIST = 35;
+// Drag threshold — if pointer moved less than this, it's a click
+const DRAG_THRESHOLD = 5;
 
 function getNodeColor(node: MapNode): string {
   if (!node.discovered) return 'rgba(100, 100, 130, 0.25)';
@@ -60,8 +62,7 @@ function getNodeColor(node: MapNode): string {
 
 function getGlowColor(node: MapNode): string {
   if (!node.discovered) return 'transparent';
-  const c = NODE_COLORS[node.type] || '#4a5568';
-  return c;
+  return NODE_COLORS[node.type] || '#4a5568';
 }
 
 export default function MapView() {
@@ -77,8 +78,8 @@ export default function MapView() {
   // Pan & zoom state
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
-  const [isDragging, setIsDragging] = useState(false);
   const dragStart = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
+  const hasMoved = useRef(false); // ref — synchronous, not batched
   const lastTouchDist = useRef<number | null>(null);
   const lastTouchCenter = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 
@@ -122,9 +123,9 @@ export default function MapView() {
     return () => clearTimeout(timer);
   }, [centerOnStation]);
 
-  // Mouse/touch handlers for pan
+  // Mouse/touch handlers for pan — using refs for drag detection
   const handlePointerDown = useCallback((e: React.PointerEvent) => {
-    setIsDragging(true);
+    hasMoved.current = false;
     dragStart.current = {
       x: e.clientX,
       y: e.clientY,
@@ -136,19 +137,21 @@ export default function MapView() {
 
   const handlePointerMove = useCallback(
     (e: React.PointerEvent) => {
-      if (!isDragging) return;
       const dx = e.clientX - dragStart.current.x;
       const dy = e.clientY - dragStart.current.y;
+      if (Math.abs(dx) > DRAG_THRESHOLD || Math.abs(dy) > DRAG_THRESHOLD) {
+        hasMoved.current = true;
+      }
       setPan({
         x: dragStart.current.panX + dx,
         y: dragStart.current.panY + dy,
       });
     },
-    [isDragging]
+    []
   );
 
   const handlePointerUp = useCallback(() => {
-    setIsDragging(false);
+    // Small delay so click can read hasMoved before any cleanup
   }, []);
 
   // Pinch-to-zoom
@@ -173,7 +176,6 @@ export default function MapView() {
         const scale = dist / lastTouchDist.current;
         const newZoom = Math.min(3, Math.max(0.5, zoom * scale));
 
-        // Zoom toward touch center
         const cx = (e.touches[0].clientX + e.touches[1].clientX) / 2;
         const cy = (e.touches[0].clientY + e.touches[1].clientY) / 2;
 
@@ -188,7 +190,8 @@ export default function MapView() {
     [zoom]
   );
 
-  // Mouse wheel zoom
+  // Mouse wheel zoom (needs non-passive to preventDefault)
+  const wheelRef = useRef<React.WheelEvent | null>(null);
   const handleWheel = useCallback(
     (e: React.WheelEvent) => {
       e.preventDefault();
@@ -210,14 +213,38 @@ export default function MapView() {
     [zoom]
   );
 
-  // Node click handler
+  // Attach non-passive wheel listener
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const handler = (e: WheelEvent) => {
+      e.preventDefault();
+      const scale = e.deltaY < 0 ? 1.1 : 0.9;
+      setZoom(prev => {
+        const newZoom = Math.min(3, Math.max(0.5, prev * scale));
+        if (el) {
+          const rect = el.getBoundingClientRect();
+          const mx = e.clientX - rect.left;
+          const my = e.clientY - rect.top;
+          setPan(p => ({
+            x: mx - (mx - p.x) * (newZoom / prev),
+            y: my - (my - p.y) * (newZoom / prev),
+          }));
+        }
+        return newZoom;
+      });
+    };
+    el.addEventListener('wheel', handler, { passive: false });
+    return () => el.removeEventListener('wheel', handler);
+  }, []);
+
+  // Node click handler — uses ref, not state
   const handleNodeClick = useCallback(
-    (node: MapNode, e: React.MouseEvent | React.TouchEvent) => {
-      e.stopPropagation();
-      if (isDragging) return;
+    (node: MapNode) => {
+      if (hasMoved.current) return;
       setSelectedNode(node);
     },
-    [isDragging]
+    []
   );
 
   // Discover action
@@ -250,6 +277,7 @@ export default function MapView() {
 
   // Map click (deselect)
   const handleMapClick = useCallback(() => {
+    if (hasMoved.current) return;
     setSelectedNode(null);
   }, []);
 
@@ -308,7 +336,6 @@ export default function MapView() {
         onPointerCancel={handlePointerUp}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
-        onWheel={handleWheel}
         onClick={handleMapClick}
       >
         {/* Grid overlay */}
@@ -343,7 +370,7 @@ export default function MapView() {
                 y1={`${a.y}%`}
                 x2={`${b.x}%`}
                 y2={`${b.y}%`}
-                stroke="rgba(0, 240, 255, 0.12)"
+                stroke="rgba(0, 240, 255, 0.15)"
                 strokeWidth="1"
                 strokeDasharray="4 4"
               />
@@ -360,7 +387,7 @@ export default function MapView() {
             const isAttackable = node.type === 'pirate' || node.type === 'anomaly';
 
             return (
-              <motion.div
+              <div
                 key={node.id}
                 className="absolute"
                 style={{
@@ -369,14 +396,14 @@ export default function MapView() {
                   transform: 'translate(-50%, -50%)',
                   zIndex: isSelected ? 20 : 10,
                 }}
-                initial={{ scale: 0, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                transition={{ delay: node.id === 'home' ? 0.1 : 0.3, duration: 0.4 }}
-                onClick={(e) => handleNodeClick(node, e)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleNodeClick(node);
+                }}
               >
                 {/* Glow ring */}
                 {node.discovered && (
-                  <motion.div
+                  <div
                     className="absolute rounded-full"
                     style={{
                       width: isHome ? 48 : 32,
@@ -385,21 +412,14 @@ export default function MapView() {
                       left: '50%',
                       transform: 'translate(-50%, -50%)',
                       background: `radial-gradient(circle, ${glow}22 0%, transparent 70%)`,
+                      animation: isAttackable ? 'pulse-glow 2s ease-in-out infinite' : isHome ? 'pulse-glow 2s ease-in-out infinite' : 'none',
                     }}
-                    animate={
-                      isHome
-                        ? { scale: [1, 1.4, 1], opacity: [0.5, 0.8, 0.5] }
-                        : isAttackable
-                        ? { scale: [1, 1.2, 1], opacity: [0.3, 0.6, 0.3] }
-                        : {}
-                    }
-                    transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
                   />
                 )}
 
                 {/* Node dot */}
-                <motion.div
-                  className="relative flex items-center justify-center rounded-full cursor-pointer"
+                <div
+                  className="relative flex items-center justify-center rounded-full cursor-pointer transition-transform active:scale-90"
                   style={{
                     width: isHome ? 44 : 30,
                     height: isHome ? 44 : 30,
@@ -413,7 +433,6 @@ export default function MapView() {
                       ? `0 0 10px ${color}44`
                       : 'none',
                   }}
-                  whileTap={{ scale: 0.9 }}
                 >
                   {Icon && (
                     <Icon
@@ -424,14 +443,16 @@ export default function MapView() {
 
                   {/* Selection ring */}
                   {isSelected && (
-                    <motion.div
-                      className="absolute inset-[-6px] rounded-full border-2"
-                      style={{ borderColor: color }}
-                      animate={{ scale: [1, 1.1, 1], opacity: [1, 0.5, 1] }}
-                      transition={{ duration: 1.5, repeat: Infinity }}
+                    <div
+                      className="absolute rounded-full border-2"
+                      style={{
+                        inset: -6,
+                        borderColor: color,
+                        animation: 'pulse-ring 1.5s ease-in-out infinite',
+                      }}
                     />
                   )}
-                </motion.div>
+                </div>
 
                 {/* Name label */}
                 {node.discovered && (
@@ -463,7 +484,7 @@ export default function MapView() {
                     ???
                   </span>
                 )}
-              </motion.div>
+              </div>
             );
           })}
         </div>
@@ -535,7 +556,7 @@ export default function MapView() {
                     className="h-7 w-7 text-muted-foreground"
                     onClick={() => setSelectedNode(null)}
                   >
-                    <ChevronLeft className="w-4 h-4 rotate-90" />
+                    <X className="w-4 h-4" />
                   </Button>
                 </div>
 
@@ -585,6 +606,11 @@ export default function MapView() {
                     })}
                   </div>
                 )}
+
+                {/* Description */}
+                <p className="text-xs text-slate-400 mb-3 leading-relaxed">
+                  {selectedNode.discovered ? getNodeDescription(selectedNode) : 'Сектор не разведан. Отправьте зонд для сканирования.'}
+                </p>
 
                 {/* Actions */}
                 <div className="flex gap-2 mt-2">
@@ -672,4 +698,22 @@ export default function MapView() {
       </AnimatePresence>
     </div>
   );
+}
+
+// Node description generator
+function getNodeDescription(node: MapNode): string {
+  switch (node.type) {
+    case 'pirate':
+      return `⚠️ Пиратская база «${node.name}». Уровень угрозы: ${node.danger}/10. Подготовьте эскадру и атакуйте для захвата ресурсов.`;
+    case 'anomaly':
+      return `✨ Загадочная аномалия «${node.name}». Исследуйте для получения ценных кристаллов и научных данных. Опасность: ${node.danger}/10.`;
+    case 'neutral':
+      return `🏭 Нейтральная торговая станция. Здесь можно обменивать ресурсы и получать задания.`;
+    case 'station':
+      return `🏠 Ваша домашняя станция ФОРПОСТ-7. Центр ваших операций в секторе Андромеда-7.`;
+    case 'empty':
+      return `🌌 Пустой сектор. Ничего интересного не обнаружено.`;
+    default:
+      return 'Неизвестный сектор.';
+  }
 }

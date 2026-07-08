@@ -446,6 +446,7 @@ function BranchColumn({
         {sortedTechs.map((tech, idx) => {
           const status = getTechStatus(tech, researchedTechs, canResearch);
           const isExpanded = selectedTechId === tech.id;
+          const isResearched = status === 'researched';
           const nextTech = sortedTechs[idx + 1];
           const nextResearched = nextTech ? researchedTechs.includes(nextTech.id) : false;
           const connectorActive = isResearched && nextTech ? true : false;

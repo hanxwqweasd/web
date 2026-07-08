@@ -19,7 +19,7 @@ export async function PUT(
     if (body.action) {
       switch (body.action) {
         case 'addResources': {
-          const res = body.resources || {};
+          const res = body.resources || body.value || {};
           const data: Record<string, number> = {};
           if (res.energy) data.energy = { increment: res.energy };
           if (res.minerals) data.minerals = { increment: res.minerals };

@@ -1,0 +1,711 @@
+     1→     1→'use client';
+     2→     2→
+     3→     3→import { useState, useCallback, useEffect, useRef } from 'react';
+     4→     4→import { motion, AnimatePresence } from 'framer-motion';
+     5→     5→import { useGameStore } from '@/lib/game/store';
+     6→     6→import { TECH_DEFS, SHIP_DEFS, MODULE_DEFS, ROOM_DEFS, ACHIEVEMENTS, RESOURCE_CONFIG } from '@/lib/game/constants';
+     7→     7→import type { Resources } from '@/lib/game/types';
+     8→     8→import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+     9→     9→import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+    10→    10→import { Input } from '@/components/ui/input';
+    11→    11→import { Button } from '@/components/ui/button';
+    12→    12→import { Badge } from '@/components/ui/badge';
+    13→    13→import { ScrollArea } from '@/components/ui/scroll-area';
+    14→    14→import { toast } from 'sonner';
+    15→    15→import {
+    16→    16→  Shield, Users, Swords, Trophy, Wrench, Zap, Plus, Minus, Search,
+    17→    17→  Ban, Trash2, Download, Upload, Copy, Star, Crown, Medal,
+    18→    18→  ChevronRight, X, RefreshCw, Eye, Lock, Unlock, Settings,
+    19→    19→  TrendingUp, Activity, Award, Gift, Rocket, Flame, Skull,
+    20→    20→  ArrowUp, ArrowDown, Hash, UserCircle, ShieldAlert,
+    21→    21→} from 'lucide-react';
+    22→    22→import { hapticFeedback } from '@/lib/telegram';
+    23→    23→
+    24→    24→// ─── Types ──────────────────────────────────────────────────
+    25→    25→interface AdminPlayer {
+    26→    26→  id: string;
+    27→    27→  telegramUserId: number;
+    28→    28→  username: string | null;
+    29→    29→  firstName: string;
+    30→    30→  lastName: string | null;
+    31→    31→  faction: string | null;
+    32→    32→  rating: number;
+    33→    33→  level: number;
+    34→    34→  stationLevel: number;
+    35→    35→  captainName: string;
+    36→    36→  pvpWins: number;
+    37→    37→  pvpLosses: number;
+    38→    38→  energy: number;
+    39→    39→  minerals: number;
+    40→    40→  crystals: number;
+    41→    41→  starShards: number;
+    42→    42→  isAdmin: boolean;
+    43→    43→  isBanned: boolean;
+    44→    44→  createdAt: string;
+    45→    45→  lastLoginAt: string;
+    46→    46→}
+    47→    47→
+    48→    48→interface GlobalStats {
+    49→    49→  totalPlayers: number;
+    50→    50→  averageRating: number;
+    51→    51→  averageLevel: number;
+    52→    52→  totalPvpBattles: number;
+    53→    53→  totalPvpWins: number;
+    54→    54→  totalMineralsMined: number;
+    55→    55→  topFactions: Record<string, number>;
+    56→    56→}
+    57→    57→
+    58→    58→// ─── Format ──────────────────────────────────────────────────
+    59→    59→function fmt(n: number): string {
+    60→    60→  if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
+    61→    61→  if (n >= 10000) return `${(n / 1000).toFixed(1)}k`;
+    62→    62→  return Math.floor(n).toLocaleString('ru-RU');
+    63→    63→}
+    64→    64→
+    65→    65→// ─── Main Admin Panel ────────────────────────────────────────
+    66→    66→export default function AdminPanel() {
+    67→    67→  const [isUnlocked, setIsUnlocked] = useState(false);
+    68→    68→  const [tapCount, setTapCount] = useState(0);
+    69→    69→  const tapTimer = useRef<ReturnType<typeof setTimeout>>();
+    70→    70→
+    71→    71→  const handleSecretTap = useCallback(() => {
+    72→    72→    const newCount = tapCount + 1;
+    73→    73→    setTapCount(newCount);
+    74→    74→
+    75→    75→    if (tapTimer.current) clearTimeout(tapTimer.current);
+    76→    76→    tapTimer.current = setTimeout(() => setTapCount(0), 2000);
+    77→    77→
+    78→    78→    if (newCount >= 5) {
+    79→    79→      setIsUnlocked(true);
+    80→    80→      setTapCount(0);
+    81→    81→      hapticFeedback('success');
+    82→    82→      toast.success('🔓 Админ-панель разблокирована!');
+    83→    83→    }
+    84→    84→  }, [tapCount]);
+    85→    85→
+    86→    86→  if (!isUnlocked) {
+    87→    87→    return (
+    88→    88→      <div className="h-full flex flex-col items-center justify-center p-6" style={{ background: '#0a0a1a' }}>
+    89→    89→        <motion.div
+    90→    90→          animate={{ rotate: [0, 5, -5, 0] }}
+    91→    91→          transition={{ duration: 2, repeat: Infinity }}
+    92→    92→        >
+    93→    93→          <Lock className="w-16 h-16 text-muted-foreground/20" />
+    94→    94→        </motion.div>
+    95→    95→        <p className="text-sm text-muted-foreground/50 mt-4 font-mono">Админ-панель заблокирована</p>
+    96→    96→        <button
+    97→    97→          onClick={handleSecretTap}
+    98→    98→          className="mt-6 px-4 py-2 rounded-lg neon-border holo-btn text-xs font-mono text-muted-foreground/40"
+    99→    99→        >
+   100→   100→          Нажмите 5 раз для разблокировки
+   101→   101→          {tapCount > 0 && <span className="ml-2 text-neon-cyan">{tapCount}/5</span>}
+   102→   102→        </button>
+   103→   103→      </div>
+   104→   104→    );
+   105→   105→  }
+   106→   106→
+   107→   107→  return (
+   108→   108→    <div className="h-full flex flex-col" style={{ background: '#0a0a1a' }}>
+   109→   109→      <div className="px-4 py-3 neon-border" style={{ background: 'rgba(15, 15, 35, 0.95)' }}>
+   110→   110→        <div className="flex items-center justify-between">
+   111→   111→          <div className="flex items-center gap-2">
+   112→   112→            <Shield className="w-5 h-5 text-neon-red" />
+   113→   113→            <h2 className="text-sm font-bold text-neon-red uppercase tracking-wider">Админ-панель</h2>
+   114→   114→          </div>
+   115→   115→          <Badge style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.3)' }}>
+   116→   116→            ADMIN
+   117→   117→          </Badge>
+   118→   118→        </div>
+   119→   119→      </div>
+   120→   120→
+   121→   121→      <Tabs defaultValue="dashboard" className="flex-1 flex flex-col mt-1">
+   122→   122→        <div className="px-3">
+   123→   123→          <TabsList className="w-full h-9 flex gap-0.5" style={{ background: 'rgba(15, 15, 35, 0.9)', border: '1px solid rgba(100, 200, 255, 0.1)' }}>
+   124→   124→            <AdminTab value="dashboard" icon={Activity} label="Дашборд" />
+   125→   125→            <AdminTab value="players" icon={Users} label="Игроки" />
+   126→   126→            <AdminTab value="top" icon={Trophy} label="Топ" />
+   127→   127→            <AdminTab value="console" icon={Terminal} label="Консоль" />
+   128→   128→          </TabsList>
+   129→   129→        </div>
+   130→   130→
+   131→   131→        <TabsContent value="dashboard" className="flex-1 overflow-y-auto">
+   132→   132→          <ScrollArea className="h-full"><div className="p-3 pb-20"><DashboardTab /></div></ScrollArea>
+   133→   133→        </TabsContent>
+   134→   134→        <TabsContent value="players" className="flex-1 overflow-y-auto">
+   135→   135→          <ScrollArea className="h-full"><div className="p-3 pb-20"><PlayersTab /></div></ScrollArea>
+   136→   136→        </TabsContent>
+   137→   137→        <TabsContent value="top" className="flex-1 overflow-y-auto">
+   138→   138→          <ScrollArea className="h-full"><div className="p-3 pb-20"><TopRewardTab /></div></ScrollArea>
+   139→   139→        </TabsContent>
+   140→   140→        <TabsContent value="console" className="flex-1 overflow-y-auto">
+   141→   141→          <ScrollArea className="h-full"><div className="p-3 pb-20"><ConsoleTab /></div></ScrollArea>
+   142→   142→        </TabsContent>
+   143→   143→      </Tabs>
+   144→   144→    </div>
+   145→   145→  );
+   146→   146→}
+   147→   147→
+   148→   148→// ─── Admin Tab Button ────────────────────────────────────────
+   149→   149→function AdminTab({ value, icon: Icon, label }: { value: string; icon: React.ComponentType<{ className?: string }>; label: string }) {
+   150→   150→  return (
+   151→   151→    <TabsTrigger
+   152→   152→      value={value}
+   153→   153→      className="flex-1 text-[10px] font-mono data-[state=active]:text-neon-cyan data-[state=active]:bg-cyan-500/10 gap-0.5"
+   154→   154→    >
+   155→   155→      <Icon className="w-3 h-3" />
+   156→   156→      {label}
+   157→   157→    </TabsTrigger>
+   158→   158→  );
+   159→   159→}
+   160→   160→
+   161→   161→// ─── Terminal Icon Fallback ───────────────────────────────────
+   162→   162→function Terminal({ className }: { className?: string }) {
+   163→   163→  return (
+   164→   164→    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+   165→   165→      <polyline points="4 17 10 11 4 5" /><line x1="12" y1="19" x2="20" y2="19" />
+   166→   166→    </svg>
+   167→   167→  );
+   168→   168→}
+   169→   169→
+   170→   170→// ─── Stat Card ───────────────────────────────────────────────
+   171→   171→function StatCard({ icon: Icon, label, value, color, sub }: { icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>; label: string; value: string | number; color: string; sub?: string }) {
+   172→   172→  return (
+   173→   173→    <motion.div
+   174→   174→      initial={{ opacity: 0, y: 10 }}
+   175→   175→      animate={{ opacity: 1, y: 0 }}
+   176→   176→      className="rounded-xl p-3"
+   177→   177→      style={{ background: `${color}08`, border: `1px solid ${color}25` }}
+   178→   178→    >
+   179→   179→      <div className="flex items-center gap-2 mb-1">
+   180→   180→        <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: `${color}15`, border: `1px solid ${color}30` }}>
+   181→   181→          <Icon className="w-3.5 h-3.5" style={{ color }} />
+   182→   182→        </div>
+   183→   183→        <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">{label}</span>
+   184→   184→      </div>
+   185→   185→      <div className="text-lg font-bold font-mono" style={{ color }}>{value}</div>
+   186→   186→      {sub && <div className="text-[9px] font-mono text-muted-foreground/60 mt-0.5">{sub}</div>}
+   187→   187→    </motion.div>
+   188→   188→  );
+   189→   189→}
+   190→   190→
+   191→   191→// ═══════════════════════════════════════════════════════════════
+   192→   192→// TAB 1: DASHBOARD
+   193→   193→// ═══════════════════════════════════════════════════════════════
+   194→   194→function DashboardTab() {
+   195→   195→  const [stats, setStats] = useState<GlobalStats | null>(null);
+   196→   196→  const [addResOpen, setAddResOpen] = useState(false);
+   197→   197→  const [addRes, setAddRes] = useState<Resources>({ energy: 0, minerals: 0, bioMatter: 0, crystals: 0 });
+   198→   198→
+   199→   199→  useEffect(() => {
+   200→   200→    fetch('/api/admin?path=stats')
+   201→   201→      .then(r => r.json())
+   202→   202→      .then(d => setStats(d))
+   203→   203→      .catch(() => {});
+   204→   204→  }, []);
+   205→   205→
+   206→   206→  const handleQuickAdd = useCallback(() => {
+   207→   207→    const state = useGameStore.getState();
+   208→   208→    const newRes = { ...state.resources };
+   209→   209→    newRes.energy += addRes.energy;
+   210→   210→    newRes.minerals += addRes.minerals;
+   211→   211→    newRes.bioMatter += addRes.bioMatter;
+   212→   212→    newRes.crystals += addRes.crystals;
+   213→   213→    useGameStore.setState({ resources: newRes });
+   214→   214→    hapticFeedback('success');
+   215→   215→    toast.success(`Ресурсы добавлены! ⚡+${fmt(addRes.energy)} 💎+${fmt(addRes.minerals)}`);
+   216→   216→    setAddResOpen(false);
+   217→   217→    setAddRes({ energy: 0, minerals: 0, bioMatter: 0, crystals: 0 });
+   218→   218→  }, [addRes]);
+   219→   219→
+   220→   220→  return (
+   221→   221→    <div className="space-y-3">
+   222→   222→      {/* Global Stats */}
+   223→   223→      <div className="grid grid-cols-2 gap-2">
+   224→   224→        <StatCard icon={Users} label="Игроков" value={stats?.totalPlayers ?? '—'} color="#00f0ff" sub="всего зарегистрировано" />
+   225→   225→        <StatCard icon={Trophy} label="Средний рейтинг" value={stats?.averageRating ?? '—'} color="#fbbf24" />
+   226→   226→        <StatCard icon={Swords} label="PvP битв" value={stats?.totalPvpBattles ?? '—'} color="#ef4444" sub={`побед: ${stats?.totalPvpWins ?? 0}`} />
+   227→   227→        <StatCard icon={TrendingUp} label="Добыто минералов" value={fmt(stats?.totalMineralsMined ?? 0)} color="#22c55e" />
+   228→   228→      </div>
+   229→   229→
+   230→   230→      {/* Faction Distribution */}
+   231→   231→      {stats?.topFactions && Object.keys(stats.topFactions).length > 0 && (
+   232→   232→        <div className="rounded-xl p-3" style={{ background: 'rgba(15, 15, 35, 0.85)', border: '1px solid rgba(100, 200, 255, 0.15)' }}>
+   233→   233→          <h3 className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider mb-2">Распределение фракций</h3>
+   234→   234→          <div className="space-y-1.5">
+   235→   235→            {Object.entries(stats.topFactions).map(([faction, count]) => {
+   236→   236→              const colors: Record<string, string> = { traders: '#fbbf24', military: '#ef4444', scientists: '#a855f7' };
+   237→   237→              const names: Record<string, string> = { traders: 'Торговцы', military: 'Военные', scientists: 'Учёные' };
+   238→   238→              const pct = stats.totalPlayers > 0 ? (count / stats.totalPlayers) * 100 : 0;
+   239→   239→              const color = colors[faction] || '#00f0ff';
+   240→   240→              return (
+   241→   241→                <div key={faction} className="flex items-center gap-2">
+   242→   242→                  <span className="text-[10px] font-mono w-16 truncate" style={{ color }}>{names[faction] || faction}</span>
+   243→   243→                  <div className="flex-1 h-2 rounded-full overflow-hidden" style={{ background: `${color}15` }}>
+   244→   244→                    <motion.div
+   245→   245→                      initial={{ width: 0 }}
+   246→   246→                      animate={{ width: `${pct}%` }}
+   247→   247→                      className="h-full rounded-full"
+   248→   248→                      style={{ background: color }}
+   249→   249→                    />
+   250→   250→                  </div>
+   251→   251→                  <span className="text-[10px] font-mono text-muted-foreground w-6 text-right">{count}</span>
+   252→   252→                </div>
+   253→   253→              );
+   254→   254→            })}
+   255→   255→          </div>
+   256→   256→        </div>
+   257→   257→      )}
+   258→   258→
+   259→   259→      {/* Quick Actions */}
+   260→   260→      <div className="rounded-xl p-3" style={{ background: 'rgba(15, 15, 35, 0.85)', border: '1px solid rgba(251, 191, 36, 0.2)' }}>
+   261→   261→        <h3 className="text-[10px] font-mono text-neon-yellow uppercase tracking-wider mb-2">⚡ Быстрые действия</h3>
+   262→   262→        <div className="grid grid-cols-2 gap-2">
+   263→   263→          <QuickAction icon={Zap} label="Добавить ресурсы" color="#fbbf24" onClick={() => setAddResOpen(true)} />
+   264→   264→          <QuickAction icon={Trophy} label="Установить рейтинг" color="#00f0ff" onClick={() => { const v = prompt('Рейтинг:'); if (v) { useGameStore.setState({ rating: parseInt(v) }); toast.success(`Рейтинг: ${v}`); } }} />
+   265→   265→          <QuickAction icon={ArrowUp} label="Установить уровень" color="#22c55e" onClick={() => { const v = prompt('Уровень:'); if (v) { useGameStore.setState({ level: parseInt(v), stationLevel: parseInt(v) }); toast.success(`Уровень: ${v}`); } }} />
+   266→   266→          <QuickAction icon={Star} label="+1000 осколков" color="#a855f7" onClick={() => { useGameStore.setState(s => ({ starShards: s.starShards + 1000 })); toast.success('+1000 осколков'); hapticFeedback('success'); }} />
+   267→   267→        </div>
+   268→   268→      </div>
+   269→   269→
+   270→   270→      {/* Add Resources Dialog */}
+   271→   271→      <Dialog open={addResOpen} onOpenChange={setAddResOpen}>
+   272→   272→        <DialogContent style={{ background: 'rgba(10, 10, 30, 0.97)', border: '1px solid rgba(0, 240, 255, 0.3)' }}>
+   273→   273→          <DialogHeader>
+   274→   274→            <DialogTitle className="neon-text-cyan text-sm">Добавить ресурсы</DialogTitle>
+   275→   275→          </DialogHeader>
+   276→   276→          <div className="space-y-2">
+   277→   277→            <ResInput label="⚡ Энергия" color="#fbbf24" value={addRes.energy} onChange={v => setAddRes(p => ({ ...p, energy: v }))} />
+   278→   278→            <ResInput label="💎 Минералы" color="#06b6d4" value={addRes.minerals} onChange={v => setAddRes(p => ({ ...p, minerals: v }))} />
+   279→   279→            <ResInput label="🌿 Биоматерия" color="#22c55e" value={addRes.bioMatter} onChange={v => setAddRes(p => ({ ...p, bioMatter: v }))} />
+   280→   280→            <ResInput label="🔮 Кристаллы" color="#a855f7" value={addRes.crystals} onChange={v => setAddRes(p => ({ ...p, crystals: v }))} />
+   281→   281→          </div>
+   282→   282→          <DialogFooter>
+   283→   283→            <Button onClick={handleQuickAdd} className="holo-btn w-full" style={{ background: 'rgba(0, 240, 255, 0.15)', border: '1px solid rgba(0, 240, 255, 0.4)', color: '#00f0ff' }}>
+   284→   284→              Применить
+   285→   285→            </Button>
+   286→   286→          </DialogFooter>
+   287→   287→        </DialogContent>
+   288→   288→      </Dialog>
+   289→   289→    </div>
+   290→   290→  );
+   291→   291→}
+   292→   292→
+   293→   293→function QuickAction({ icon: Icon, label, color, onClick }: { icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>; label: string; color: string; onClick: () => void }) {
+   294→   294→  return (
+   295→   295→    <button onClick={onClick} className="flex items-center gap-2 rounded-lg p-2.5 text-left transition-all hover:scale-[1.02] active:scale-[0.98] holo-btn" style={{ background: `${color}08`, border: `1px solid ${color}20` }}>
+   296→   296→      <Icon className="w-4 h-4" style={{ color }} />
+   297→   297→      <span className="text-[10px] font-mono" style={{ color }}>{label}</span>
+   298→   298→    </button>
+   299→   299→  );
+   300→   300→}
+   301→   301→
+   302→   302→function ResInput({ label, color, value, onChange }: { label: string; color: string; value: number; onChange: (v: number) => void }) {
+   303→   303→  return (
+   304→   304→    <div className="flex items-center gap-2">
+   305→   305→      <span className="text-xs w-28" style={{ color }}>{label}</span>
+   306→   306→      <Input type="number" value={value} onChange={e => onChange(parseInt(e.target.value) || 0)} className="h-8 font-mono text-xs" style={{ background: 'rgba(15, 15, 35, 0.9)', border: `1px solid ${color}30`, color }} />
+   307→   307→    </div>
+   308→   308→  );
+   309→   309→}
+   310→   310→
+   311→   311→// ═══════════════════════════════════════════════════════════════
+   312→   312→// TAB 2: PLAYERS
+   313→   313→// ═══════════════════════════════════════════════════════════════
+   314→   314→function PlayersTab() {
+   315→   315→  const [players, setPlayers] = useState<AdminPlayer[]>([]);
+   316→   316→  const [total, setTotal] = useState(0);
+   317→   317→  const [page, setPage] = useState(1);
+   318→   318→  const [search, setSearch] = useState('');
+   319→   319→  const [loading, setLoading] = useState(false);
+   320→   320→  const [selectedPlayer, setSelectedPlayer] = useState<AdminPlayer | null>(null);
+   321→   321→
+   322→   322→  const loadPlayers = useCallback(async () => {
+   323→   323→    setLoading(true);
+   324→   324→    try {
+   325→   325→      const params = new URLSearchParams({ page: String(page), limit: '20', search });
+   326→   326→      const res = await fetch(`/api/admin?${params}`);
+   327→   327→      const data = await res.json();
+   328→   328→      setPlayers(data.players || []);
+   329→   329→      setTotal(data.total || 0);
+   330→   330→    } catch {
+   331→   331→      toast.error('Ошибка загрузки');
+   332→   332→    }
+   333→   333→    setLoading(false);
+   334→   334→  }, [page, search]);
+   335→   335→
+   336→   336→  useEffect(() => { loadPlayers(); }, [page, search]); // eslint-disable-line react-hooks/set-state-in-effect
+   337→   337→
+   338→   338→  const handleAdminAction = async (playerId: string, action: string, value?: any) => {
+   339→   339→    try {
+   340→   340→      const res = await fetch(`/api/admin/player/${playerId}`, {
+   341→   341→        method: 'PUT',
+   342→   342→        headers: { 'Content-Type': 'application/json' },
+   343→   343→        body: JSON.stringify({ action, value, reason: 'Админ действие' }),
+   344→   344→      });
+   345→   345→      const data = await res.json();
+   346→   346→      toast.success(data.message || 'Выполнено');
+   347→   347→      loadPlayers();
+   348→   348→    } catch {
+   349→   349→      toast.error('Ошибка');
+   350→   350→    }
+   351→   351→  };
+   352→   352→
+   353→   353→  return (
+   354→   354→    <div className="space-y-3">
+   355→   355→      {/* Search */}
+   356→   356→      <div className="flex gap-2">
+   357→   357→        <div className="flex-1 relative">
+   358→   358→          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+   359→   359→          <Input
+   360→   360→            placeholder="Поиск по имени, ID..."
+   361→   361→            value={search}
+   362→   362→            onChange={e => { setSearch(e.target.value); setPage(1); }}
+   363→   363→            className="h-8 pl-8 text-xs font-mono"
+   364→   364→            style={{ background: 'rgba(15, 15, 35, 0.9)', border: '1px solid rgba(100, 200, 255, 0.15)' }}
+   365→   365→          />
+   366→   366→        </div>
+   367→   367→        <Button onClick={loadPlayers} size="sm" className="h-8 px-3 holo-btn" style={{ background: 'rgba(0, 240, 255, 0.1)', border: '1px solid rgba(0, 240, 255, 0.3)', color: '#00f0ff' }}>
+   368→   368→          <RefreshCw className="w-3 h-3" />
+   369→   369→        </Button>
+   370→   370→      </div>
+   371→   371→
+   372→   372→      <div className="text-[10px] font-mono text-muted-foreground">
+   373→   373→        Найдено: {total} · Страница {page}/{Math.max(1, Math.ceil(total / 20))}
+   374→   374→      </div>
+   375→   375→
+   376→   376→      {/* Players List */}
+   377→   377→      {loading ? (
+   378→   378→        <div className="text-center py-8 text-muted-foreground text-xs font-mono">Загрузка...</div>
+   379→   379→      ) : players.length === 0 ? (
+   380→   380→        <div className="text-center py-8 text-muted-foreground text-xs font-mono">Игроки не найдены</div>
+   381→   381→      ) : (
+   382→   382→        <div className="space-y-1.5">
+   383→   383→          {players.map(p => (
+   384→   384→            <motion.div
+   385→   385→              key={p.id}
+   386→   386→              initial={{ opacity: 0, x: -10 }}
+   387→   387→              animate={{ opacity: 1, x: 0 }}
+   388→   388→              className="flex items-center gap-2.5 rounded-lg px-3 py-2 cursor-pointer transition-colors hover:bg-white/5"
+   389→   389→              style={{ background: 'rgba(15, 15, 35, 0.6)', border: '1px solid rgba(100, 200, 255, 0.08)' }}
+   390→   390→              onClick={() => setSelectedPlayer(p)}
+   391→   391→            >
+   392→   392→              <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold" style={{
+   393→   393→                background: p.isBanned ? 'rgba(239, 68, 68, 0.15)' : p.isAdmin ? 'rgba(251, 191, 36, 0.15)' : 'rgba(0, 240, 255, 0.1)',
+   394→   394→                color: p.isBanned ? '#ef4444' : p.isAdmin ? '#fbbf24' : '#00f0ff',
+   395→   395→                border: `1px solid ${p.isBanned ? 'rgba(239, 68, 68, 0.3)' : p.isAdmin ? 'rgba(251, 191, 36, 0.3)' : 'rgba(0, 240, 255, 0.2)'}`,
+   396→   396→              }}>
+   397→   397→                {p.firstName?.[0] || '?'}
+   398→   398→              </div>
+   399→   399→              <div className="flex-1 min-w-0">
+   400→   400→                <div className="flex items-center gap-1.5">
+   401→   401→                  <span className="text-xs font-bold truncate">{p.captainName || p.firstName}</span>
+   402→   402→                  {p.isAdmin && <Badge className="text-[7px] h-3 px-1" style={{ background: 'rgba(251, 191, 36, 0.15)', color: '#fbbf24', border: 'none' }}>ADM</Badge>}
+   403→   403→                  {p.isBanned && <Badge className="text-[7px] h-3 px-1" style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444', border: 'none' }}>BAN</Badge>}
+   404→   404→                </div>
+   405→   405→                <div className="text-[9px] font-mono text-muted-foreground">
+   406→   406→                  @{p.username || 'N/A'} · ID:{p.telegramUserId}
+   407→   407→                </div>
+   408→   408→              </div>
+   409→   409→              <div className="text-right flex-shrink-0">
+   410→   410→                <div className="text-xs font-bold font-mono neon-text-cyan">{p.rating}</div>
+   411→   411→                <div className="text-[9px] font-mono text-muted-foreground">Ур.{p.level}</div>
+   412→   412→              </div>
+   413→   413→              <ChevronRight className="w-3.5 h-3.5 text-muted-foreground/40" />
+   414→   414→            </motion.div>
+   415→   415→          ))}
+   416→   416→        </div>
+   417→   417→      )}
+   418→   418→
+   419→   419→      {/* Pagination */}
+   420→   420→      {total > 20 && (
+   421→   421→        <div className="flex justify-center gap-2 pt-2">
+   422→   422→          <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage(p => p - 1)} className="h-7 text-[10px]">← Назад</Button>
+   423→   423→          <Button size="sm" variant="outline" disabled={page * 20 >= total} onClick={() => setPage(p => p + 1)} className="h-7 text-[10px]">Далее →</Button>
+   424→   424→        </div>
+   425→   425→      )}
+   426→   426→
+   427→   427→      {/* Player Detail Dialog */}
+   428→   428→      {selectedPlayer && (
+   429→   429→        <PlayerDetailDialog
+   430→   430→          player={selectedPlayer}
+   431→   431→          onClose={() => setSelectedPlayer(null)}
+   432→   432→          onAction={handleAdminAction}
+   433→   433→          onRefresh={loadPlayers}
+   434→   434→        />
+   435→   435→      )}
+   436→   436→    </div>
+   437→   437→  );
+   438→   438→}
+   439→   439→
+   440→   440→// ─── Player Detail Dialog ────────────────────────────────────
+   441→   441→function PlayerDetailDialog({ player, onClose, onAction, onRefresh }: { player: AdminPlayer; onClose: () => void; onAction: (id: string, action: string, value?: any) => void; onRefresh: () => void }) {
+   442→   442→  const [addRes, setAddRes] = useState({ energy: 1000, minerals: 1000, bioMatter: 500, crystals: 100 });
+   443→   443→  const factionColors: Record<string, string> = { traders: '#fbbf24', military: '#ef4444', scientists: '#a855f7' };
+   444→   444→
+   445→   445→  return (
+   446→   446→    <Dialog open={!!player} onOpenChange={() => onClose()}>
+   447→   447→      <DialogContent className="max-w-sm max-h-[80vh] overflow-y-auto" style={{ background: 'rgba(10, 10, 30, 0.97)', border: '1px solid rgba(0, 240, 255, 0.3)' }}>
+   448→   448→        <DialogHeader>
+   449→   449→          <DialogTitle className="flex items-center gap-2">
+   450→   450→            <UserCircle className="w-5 h-5 text-neon-cyan" />
+   451→   451→            <span className="text-sm neon-text-cyan">{player.captainName || player.firstName}</span>
+   452→   452→          </DialogTitle>
+   453→   453→        </DialogHeader>
+   454→   454→
+   455→   455→        {/* Player Info */}
+   456→   456→        <div className="space-y-2 text-xs font-mono">
+   457→   457→          <InfoRow label="Telegram ID" value={String(player.telegramUserId)} />
+   458→   458→          <InfoRow label="Username" value={`@${player.username || 'N/A'}`} />
+   459→   459→          <InfoRow label="Фракция" value={player.faction || '—'} color={factionColors[player.faction || '']} />
+   460→   460→          <InfoRow label="Рейтинг" value={String(player.rating)} color="#00f0ff" />
+   461→   461→          <InfoRow label="Уровень" value={`${player.level} (станция: ${player.stationLevel})`} />
+   462→   462→          <InfoRow label="PvP" value={`${player.pvpWins}W / ${player.pvpLosses}L`} color={player.pvpWins > player.pvpLosses ? '#22c55e' : '#ef4444'} />
+   463→   463→          <div className="grid grid-cols-2 gap-1">
+   464→   464→            <InfoRow label="Энергия" value={fmt(player.energy)} color="#fbbf24" />
+   465→   465→            <InfoRow label="Минералы" value={fmt(player.minerals)} color="#06b6d4" />
+   466→   466→            <InfoRow label="Кристаллы" value={fmt(player.crystals)} color="#a855f7" />
+   467→   467→            <InfoRow label="Осколки" value={String(player.starShards)} color="#fbbf24" />
+   468→   468→          </div>
+   469→   469→        </div>
+   470→   470→
+   471→   471→        {/* Admin Actions */}
+   472→   472→        <div className="space-y-2 pt-2" style={{ borderTop: '1px solid rgba(239, 68, 68, 0.2)' }}>
+   473→   473→          <h4 className="text-[10px] font-mono text-neon-red uppercase tracking-wider">Действия администратора</h4>
+   474→   474→
+   475→   475→          {/* Add Resources */}
+   476→   476→          <div className="rounded-lg p-2" style={{ background: 'rgba(34, 197, 94, 0.05)', border: '1px solid rgba(34, 197, 94, 0.15)' }}>
+   477→   477→            <span className="text-[10px] font-mono text-neon-green">Накрутить ресурсы:</span>
+   478→   478→            <div className="grid grid-cols-2 gap-1 mt-1">
+   479→   479→              <ResInput label="⚡" color="#fbbf24" value={addRes.energy} onChange={v => setAddRes(p => ({ ...p, energy: v }))} />
+   480→   480→              <ResInput label="💎" color="#06b6d4" value={addRes.minerals} onChange={v => setAddRes(p => ({ ...p, minerals: v }))} />
+   481→   481→              <ResInput label="🌿" color="#22c55e" value={addRes.bioMatter} onChange={v => setAddRes(p => ({ ...p, bioMatter: v }))} />
+   482→   482→              <ResInput label="🔮" color="#a855f7" value={addRes.crystals} onChange={v => setAddRes(p => ({ ...p, crystals: v }))} />
+   483→   483→            </div>
+   484→   484→            <Button onClick={() => { onAction(player.id, 'addResources', addRes); }} size="sm" className="w-full mt-1 h-7 text-[10px] holo-btn" style={{ background: 'rgba(34, 197, 94, 0.1)', border: '1px solid rgba(34, 197, 94, 0.3)', color: '#22c55e' }}>
+   485→   485→              Добавить ресурсы
+   486→   486→            </Button>
+   487→   487→          </div>
+   488→   488→
+   489→   489→          {/* Quick Actions */}
+   490→   490→          <div className="grid grid-cols-2 gap-1">
+   491→   491→            <AdminBtn icon={Trophy} label="Set Рейтинг" color="#00f0ff" onClick={() => { const v = prompt('Новый рейтинг:'); if (v) onAction(player.id, 'setRating', parseInt(v)); }} />
+   492→   492→            <AdminBtn icon={ArrowUp} label="Set Уровень" color="#22c55e" onClick={() => { const v = prompt('Новый уровень:'); if (v) onAction(player.id, 'setLevel', parseInt(v)); }} />
+   493→   493→            <AdminBtn icon={player.isAdmin ? Shield : ShieldAlert} label={player.isAdmin ? 'Снять админа' : 'Дать админа'} color="#fbbf24" onClick={() => onAction(player.id, 'setAdmin', !player.isAdmin)} />
+   494→   494→            <AdminBtn icon={player.isBanned ? Unlock : Ban} label={player.isBanned ? 'Разбанить' : 'Забанить'} color="#ef4444" onClick={() => onAction(player.id, player.isBanned ? 'unban' : 'ban')} />
+   495→   495→          </div>
+   496→   496→
+   497→   497→          <Button onClick={() => { onAction(player.id, 'delete'); onClose(); onRefresh(); }} size="sm" className="w-full h-7 text-[10px]" style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', color: '#ef4444' }}>
+   498→   498→            <Trash2 className="w-3 h-3 mr-1" /> Удалить игрока
+   499→   499→          </Button>
+   500→   500→        </div>
+   501→   501→      </DialogContent>
+   502→   502→    </Dialog>
+   503→   503→  );
+   504→   504→}
+   505→   505→
+   506→   506→function InfoRow({ label, value, color }: { label: string; value: string; color?: string }) {
+   507→   507→  return (
+   508→   508→    <div className="flex justify-between">
+   509→   509→      <span className="text-muted-foreground">{label}</span>
+   510→   510→      <span style={color ? { color } : {}} className="font-bold">{value}</span>
+   511→   511→    </div>
+   512→   512→  );
+   513→   513→}
+   514→   514→
+   515→   515→function AdminBtn({ icon: Icon, label, color, onClick }: { icon: React.ComponentType<{ className?: string }>; label: string; color: string; onClick: () => void }) {
+   516→   516→  return (
+   517→   517→    <Button onClick={onClick} size="sm" variant="outline" className="h-7 text-[10px] justify-start gap-1.5 px-2 holo-btn" style={{ background: `${color}08`, border: `1px solid ${color}25`, color }}>
+   518→   518→      <Icon className="w-3 h-3" /> {label}
+   519→   519→    </Button>
+   520→   520→  );
+   521→   521→}
+   522→   522→
+   523→   523→// ═══════════════════════════════════════════════════════════════
+   524→   524→// TAB 3: TOP & REWARDS
+   525→   525→// ═══════════════════════════════════════════════════════════════
+   526→   526→function TopRewardTab() {
+   527→   527→  const [leaderboard, setLeaderboard] = useState<any[]>([]);
+   528→   528→  const [distributing, setDistributing] = useState(false);
+   529→   529→
+   530→   530→  useEffect(() => {
+   531→   531→    fetch('/api/leaderboard?type=rating&limit=10')
+   532→   532→      .then(r => r.json())
+   533→   533→      .then(d => setLeaderboard(d.leaderboard || []))
+   534→   534→      .catch(() => {});
+   535→   535→  }, []);
+   536→   536→
+   537→   537→  const handleDistribute = async () => {
+   538→   538→    setDistributing(true);
+   539→   539→    try {
+   540→   540→      const res = await fetch('/api/admin/leaderboard/reward', { method: 'POST' });
+   541→   541→      const data = await res.json();
+   542→   542→      if (data.error) { toast.error(data.error); } else { toast.success(data.message); }
+   543→   543→    } catch { toast.error('Ошибка'); }
+   544→   544→    setDistributing(false);
+   545→   545→  };
+   546→   546→
+   547→   547→  const medalColors = ['#fbbf24', '#94a3b8', '#cd7f32'];
+   548→   548→
+   549→   549→  return (
+   550→   550→    <div className="space-y-3">
+   551→   551→      {/* Reward Config */}
+   552→   552→      <div className="rounded-xl p-3" style={{ background: 'rgba(15, 15, 35, 0.85)', border: '1px solid rgba(251, 191, 36, 0.2)' }}>
+   553→   553→        <h3 className="text-[10px] font-mono text-neon-yellow uppercase tracking-wider mb-2">🏆 Награды ТОП-3</h3>
+   554→   554→        <div className="space-y-1.5">
+   555→   555→          {[
+   556→   556→            { rank: 1, reward: '💎 5000 кристаллов + ⭐ 1000 осколков', icon: Crown, color: '#fbbf24' },
+   557→   557→            { rank: 2, reward: '💎 2000 кристаллов + ⭐ 500 осколков', icon: Medal, color: '#94a3b8' },
+   558→   558→            { rank: 3, reward: '💎 1000 кристаллов + ⭐ 200 осколков', icon: Award, color: '#cd7f32' },
+   559→   559→          ].map(r => (
+   560→   560→            <div key={r.rank} className="flex items-center gap-2">
+   561→   561→              <r.icon className="w-4 h-4" style={{ color: r.color }} />
+   562→   562→              <span className="text-[10px] font-mono" style={{ color: r.color }}>#{r.rank}</span>
+   563→   563→              <span className="text-[10px] text-foreground">{r.reward}</span>
+   564→   564→            </div>
+   565→   565→          ))}
+   566→   566→        </div>
+   567→   567→        <Button onClick={handleDistribute} disabled={distributing} className="w-full mt-3 h-8 text-[10px] font-bold holo-btn" style={{ background: 'rgba(251, 191, 36, 0.15)', border: '1px solid rgba(251, 191, 36, 0.4)', color: '#fbbf24' }}>
+   568→   568→          {distributing ? 'Распределение...' : '🎁 Раздать награды ТОП-3'}
+   569→   569→        </Button>
+   570→   570→      </div>
+   571→   571→
+   572→   572→      {/* Current Top 10 */}
+   573→   573→      <div className="rounded-xl p-3" style={{ background: 'rgba(15, 15, 35, 0.85)', border: '1px solid rgba(0, 240, 255, 0.15)' }}>
+   574→   574→        <h3 className="text-[10px] font-mono text-neon-cyan uppercase tracking-wider mb-2">Текущий ТОП-10</h3>
+   575→   575→        {leaderboard.length === 0 ? (
+   576→   576→          <p className="text-[10px] text-muted-foreground text-center py-4">Нет данных</p>
+   577→   577→        ) : (
+   578→   578→          <div className="space-y-1">
+   579→   579→            {leaderboard.map((p, i) => (
+   580→   580→              <div key={p.id} className="flex items-center gap-2 px-2 py-1.5 rounded-lg" style={{ background: i < 3 ? `${medalColors[i]}08` : 'transparent' }}>
+   581→   581→                <span className="text-xs font-bold w-5 text-center" style={{ color: i < 3 ? medalColors[i] : '#64748b' }}>{i + 1}</span>
+   582→   582→                <span className="text-[10px] font-mono flex-1 truncate">{p.firstName || p.username}</span>
+   583→   583→                <span className="text-[10px] font-bold font-mono neon-text-cyan">{p.rating}</span>
+   584→   584→              </div>
+   585→   585→            ))}
+   586→   586→          </div>
+   587→   587→        )}
+   588→   588→      </div>
+   589→   589→    </div>
+   590→   590→  );
+   591→   591→}
+   592→   592→
+   593→   593→// ═══════════════════════════════════════════════════════════════
+   594→   594→// TAB 4: CONSOLE / CHEATS
+   595→   595→// ═══════════════════════════════════════════════════════════════
+   596→   596→function ConsoleTab() {
+   597→   597→  const handleAction = useCallback((label: string, fn: () => void) => {
+   598→   598→    hapticFeedback('success');
+   599→   599→    fn();
+   600→   600→    toast.success(`${label} ✅`);
+   601→   601→  }, []);
+   602→   602→
+   603→   603→  return (
+   604→   604→    <div className="space-y-3">
+   605→   605→      {/* Direct Resource Set */}
+   606→   606→      <div className="rounded-xl p-3" style={{ background: 'rgba(15, 15, 35, 0.85)', border: '1px solid rgba(0, 240, 255, 0.15)' }}>
+   607→   607→        <h3 className="text-[10px] font-mono text-neon-cyan uppercase tracking-wider mb-2">⚡ Прямое управление ресурсами</h3>
+   608→   608→        <DirectResourceControl />
+   609→   609→      </div>
+   610→   610→
+   611→   611→      {/* Instant Actions */}
+   612→   612→      <div className="rounded-xl p-3" style={{ background: 'rgba(15, 15, 35, 0.85)', border: '1px solid rgba(168, 85, 247, 0.2)' }}>
+   613→   613→        <h3 className="text-[10px] font-mono text-neon-purple uppercase tracking-wider mb-2">🎯 Мгновенные действия</h3>
+   614→   614→        <div className="grid grid-cols-2 gap-1.5">
+   615→   615→          <CheatButton label="🔬 Все технологии" color="#a855f7" onClick={() => handleAction('Все технологии исследованы', () => useGameStore.setState({ researchedTechs: TECH_DEFS.map(t => t.id) }))} />
+   616→   616→          <CheatButton label="⬆️ Макс уровень модулей" color="#22c55e" onClick={() => handleAction('Модули максимального уровня', () => {
+   617→   617→            const modules = useGameStore.getState().modules.map(m => ({ ...m, level: 10, building: false, buildStartTime: null, buildEndTime: null }));
+   618→   618→            useGameStore.setState({ modules, stationLevel: 10 });
+   619→   619→          })} />
+   620→   620→          <CheatButton label="♾️ Бесконечные ресурсы" color="#fbbf24" onClick={() => handleAction('Ресурсы: 999999', () => useGameStore.setState({ resources: { energy: 999999, minerals: 999999, bioMatter: 999999, crystals: 999999 } }))} />
+   621→   621→          <CheatButton label="🚀 Все корабли x99" color="#00f0ff" onClick={() => handleAction('99 каждого корабля', () => {
+   622→   622→            const ships = SHIP_DEFS.map(d => ({ id: crypto.randomUUID(), defId: d.id, name: d.name, quantity: 99, assignedSquadron: null }));
+   623→   623→            useGameStore.setState({ ships });
+   624→   624→          })} />
+   625→   625→          <CheatButton label="👑 Рейтинг 9999" color="#fbbf24" onClick={() => handleAction('Рейтинг: 9999', () => useGameStore.setState({ rating: 9999 }))} />
+   626→   626→          <CheatButton label="🏠 Все комнаты" color="#22c55e" onClick={() => handleAction('Все комнаты разблокированы', () => {
+   627→   627→            const allRooms: any[] = ['bridge', 'engineering', 'bioLab', 'hangar', 'bar', 'serverRoom', 'corridor'];
+   628→   628→            useGameStore.setState({ unlockedRooms: allRooms });
+   629→   629→          })} />
+   630→   630→          <CheatButton label="⭐ +10000 осколков" color="#fbbf24" onClick={() => handleAction('+10000 осколков', () => useGameStore.setState(s => ({ starShards: s.starShards + 10000 })))} />
+   631→   631→          <CheatButton label="🧪 +50000 науки" color="#a855f7" onClick={() => handleAction('+50000 очков науки', () => useGameStore.setState(s => ({ sciencePoints: s.sciencePoints + 50000 })))} />
+   632→   632→        </div>
+   633→   633→      </div>
+   634→   634→
+   635→   635→      {/* Danger Zone */}
+   636→   636→      <div className="rounded-xl p-3" style={{ background: 'rgba(239, 68, 68, 0.03)', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
+   637→   637→        <h3 className="text-[10px] font-mono text-neon-red uppercase tracking-wider mb-2">⚠️ Опасная зона</h3>
+   638→   638→        <div className="grid grid-cols-2 gap-1.5">
+   639→   639→          <CheatButton label="📥 Экспорт состояния" color="#00f0ff" onClick={() => {
+   640→   640→            const state = useGameStore.getState();
+   641→   641→            navigator.clipboard.writeText(JSON.stringify(state, null, 2));
+   642→   642→            toast.success('Состояние скопировано в буфер обмена');
+   643→   643→          }} />
+   644→   644→          <CheatButton label="📤 Импорт состояния" color="#fbbf24" onClick={() => {
+   645→   645→            const json = prompt('Вставьте JSON состояния:');
+   646→   646→            if (json) {
+   647→   647→              try {
+   648→   648→                const state = JSON.parse(json);
+   649→   649→                useGameStore.setState(state);
+   650→   650→                toast.success('Состояние импортировано!');
+   651→   651→              } catch { toast.error('Ошибка парсинга JSON'); }
+   652→   652→            }
+   653→   653→          }} />
+   654→   654→          <CheatButton label="🗑️ СБРОС ПРОГРЕССА" color="#ef4444" onClick={() => {
+   655→   655→            if (confirm('Вы уверены? ВСЁ будет удалено!')) {
+   656→   656→              localStorage.removeItem('star-dominion-store');
+   657→   657→              window.location.reload();
+   658→   658→            }
+   659→   659→          }} />
+   660→   660→        </div>
+   661→   661→      </div>
+   662→   662→    </div>
+   663→   663→  );
+   664→   664→}
+   665→   665→
+   666→   666→function DirectResourceControl() {
+   667→   667→  const [values, setValues] = useState<Resources>({ energy: 0, minerals: 0, bioMatter: 0, crystals: 0 });
+   668→   668→
+   669→   669→  const setAll = (v: number) => setValues({ energy: v, minerals: v, bioMatter: v, crystals: v });
+   670→   670→
+   671→   671→  return (
+   672→   672→    <div className="space-y-2">
+   673→   673→      <div className="flex gap-1.5">
+   674→   674→        {[1000, 10000, 50000, 100000].map(v => (
+   675→   675→          <button key={v} onClick={() => setAll(v)} className="flex-1 py-1 rounded text-[9px] font-mono holo-btn" style={{ background: 'rgba(0, 240, 255, 0.08)', border: '1px solid rgba(0, 240, 255, 0.2)', color: '#00f0ff' }}>
+   676→   676→            {fmt(v)}
+   677→   677→          </button>
+   678→   678→        ))}
+   679→   679→      </div>
+   680→   680→      <ResInput label="⚡ Энергия" color="#fbbf24" value={values.energy} onChange={v => setValues(p => ({ ...p, energy: v }))} />
+   681→   681→      <ResInput label="💎 Минералы" color="#06b6d4" value={values.minerals} onChange={v => setValues(p => ({ ...p, minerals: v }))} />
+   682→   682→      <ResInput label="🌿 Биоматерия" color="#22c55e" value={values.bioMatter} onChange={v => setValues(p => ({ ...p, bioMatter: v }))} />
+   683→   683→      <ResInput label="🔮 Кристаллы" color="#a855f7" value={values.crystals} onChange={v => setValues(p => ({ ...p, crystals: v }))} />
+   684→   684→      <div className="flex gap-2">
+   685→   685→        <Button onClick={() => {
+   686→   686→          useGameStore.setState({ resources: { ...values } });
+   687→   687→          hapticFeedback('success');
+   688→   688→          toast.success('Ресурсы установлены!');
+   689→   689→        }} className="flex-1 h-8 text-[10px] holo-btn" style={{ background: 'rgba(0, 240, 255, 0.1)', border: '1px solid rgba(0, 240, 255, 0.3)', color: '#00f0ff' }}>
+   690→   690→          Установить
+   691→   691→        </Button>
+   692→   692→        <Button onClick={() => {
+   693→   693→          const cur = useGameStore.getState().resources;
+   694→   694→          useGameStore.setState({ resources: { energy: cur.energy + values.energy, minerals: cur.minerals + values.minerals, bioMatter: cur.bioMatter + values.bioMatter, crystals: cur.crystals + values.crystals } });
+   695→   695→          hapticFeedback('success');
+   696→   696→          toast.success('Ресурсы добавлены!');
+   697→   697→        }} className="flex-1 h-8 text-[10px] holo-btn" style={{ background: 'rgba(34, 197, 94, 0.1)', border: '1px solid rgba(34, 197, 94, 0.3)', color: '#22c55e' }}>
+   698→   698→          Добавить
+   699→   699→        </Button>
+   700→   700→      </div>
+   701→   701→    </div>
+   702→   702→  );
+   703→   703→}
+   704→   704→
+   705→   705→function CheatButton({ label, color, onClick }: { label: string; color: string; onClick: () => void }) {
+   706→   706→  return (
+   707→   707→    <button onClick={onClick} className="rounded-lg p-2 text-left transition-all hover:scale-[1.02] active:scale-[0.97] holo-btn" style={{ background: `${color}08`, border: `1px solid ${color}20` }}>
+   708→   708→      <span className="text-[10px] font-mono" style={{ color }}>{label}</span>
+   709→   709→    </button>
+   710→   710→  );
+   711→   711→}

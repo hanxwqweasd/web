@@ -168,7 +168,8 @@ export const useGameStore = create<GameStore>()(
               const updatedModules = state.modules.map(m =>
                 m.id === mod.id ? { ...m, building: false, buildStartTime: null, buildEndTime: null } : m
               );
-              set({ modules: updatedModules, notification: `✨ ${MODULE_DEFS.find(d => d.id === m.defId)?.name || 'Модуль'} построен!` });
+              const modDef = MODULE_DEFS.find(d => d.id === mod.defId);
+              set({ modules: updatedModules, notification: `✨ ${modDef?.name || 'Модуль'} построен!` });
               continue;
             }
           }

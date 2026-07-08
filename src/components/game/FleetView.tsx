@@ -256,7 +256,7 @@ function ShipCard({
   def: ShipDef;
   onBuildMore: () => void;
 }) {
-  const Icon = ICON_MAP[def.icon] || Ship;
+  const Icon = ICON_MAP[def.icon] || ShipIcon;
   const canAffordFn = useGameStore(s => s.canAfford);
   const canAfford = canAffordFn(def.cost);
   const researchedTechs = useGameStore(s => s.researchedTechs);
@@ -410,7 +410,7 @@ function SquadronCard({
           {assignedShips.map(ship => {
             const def = SHIP_DEFS.find(d => d.id === ship.defId);
             if (!def) return null;
-            const Icon = ICON_MAP[def.icon] || Ship;
+            const Icon = ICON_MAP[def.icon] || ShipIcon;
             return (
               <div key={ship.id} className="flex items-center justify-between px-2 py-1 rounded-md" style={{ background: 'rgba(168, 85, 247, 0.06)' }}>
                 <div className="flex items-center gap-1.5">
@@ -451,7 +451,7 @@ function SquadronCard({
               {unassignedShips.map(ship => {
                 const def = SHIP_DEFS.find(d => d.id === ship.defId);
                 if (!def) return null;
-                const Icon = ICON_MAP[def.icon] || Ship;
+                const Icon = ICON_MAP[def.icon] || ShipIcon;
                 return (
                   <button
                     key={ship.id}
@@ -883,7 +883,7 @@ export default function FleetView() {
                       {availableShipDefs
                         .filter(d => !ownedShips.find(s => s.defId === d.id))
                         .map(def => {
-                          const Icon = ICON_MAP[def.icon] || Ship;
+                          const Icon = ICON_MAP[def.icon] || ShipIcon;
                           const canAfford = useGameStore.getState().canAfford(def.cost);
                           return (
                             <button
