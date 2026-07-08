@@ -8,7 +8,7 @@ import { getTelegramUser, hapticFeedback } from '@/lib/telegram';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
-import { ScrollArea } from '@/components/ui/scroll-area';
+// ScrollArea replaced with native scroll
 import { Input } from '@/components/ui/input';
 import {
   User,
@@ -23,6 +23,8 @@ import {
   Leaf,
   Copy,
   Check,
+  RotateCcw,
+  AlertTriangle,
   Trophy,
   Users,
   Calendar,
@@ -573,18 +575,103 @@ function ResourcesSummary() {
 }
 
 // ============================================
+// Reset Account Section
+// ============================================
+function ResetAccountSection() {
+  const [confirming, setConfirming] = useState(false);
+  const [resetting, setResetting] = useState(false);
+
+  const handleReset = useCallback(async () => {
+    setResetting(true);
+    const user = getTelegramUser();
+
+    try {
+      if (user) {
+        await fetch('/api/player/reset', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ telegramUserId: user.id }),
+        });
+      }
+    } catch {}
+
+    // Clear everything and reload
+    localStorage.clear();
+    location.reload();
+  }, []);
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="p-3 rounded-xl"
+      style={{ background: 'rgba(239, 68, 68, 0.06)', border: '1px solid rgba(239, 68, 68, 0.15)' }}
+    >
+      <div className="flex items-center gap-2 mb-2">
+        <AlertTriangle className="w-4 h-4 text-red-400" />
+        <h3 className="text-xs font-bold text-red-400 uppercase tracking-wider">Сброс аккаунта</h3>
+      </div>
+      <p className="text-[10px] text-slate-500 mb-3 leading-snug">
+        Удалит весь прогресс и начнёт игру заново. Действие необратимо.
+      </p>
+      {!confirming ? (
+        <button
+          onClick={() => { hapticFeedback('medium'); setConfirming(true); }}
+          className="w-full py-2 rounded-lg text-xs font-bold transition-all"
+          style={{
+            background: 'rgba(239, 68, 68, 0.1)',
+            border: '1px solid rgba(239, 68, 68, 0.25)',
+            color: '#ef4444',
+          }}
+        >
+          <RotateCcw className="w-3 h-3 inline mr-1.5" style={{ verticalAlign: -2 }} />
+          Сбросить аккаунт
+        </button>
+      ) : (
+        <div className="flex gap-2">
+          <button
+            onClick={() => setConfirming(false)}
+            className="flex-1 py-2 rounded-lg text-xs font-bold transition-all"
+            style={{
+              background: 'rgba(100, 100, 130, 0.1)',
+              border: '1px solid rgba(100, 100, 130, 0.2)',
+              color: '#64748b',
+            }}
+          >
+            Отмена
+          </button>
+          <button
+            onClick={handleReset}
+            disabled={resetting}
+            className="flex-1 py-2 rounded-lg text-xs font-bold transition-all"
+            style={{
+              background: 'rgba(239, 68, 68, 0.2)',
+              border: '1px solid rgba(239, 68, 68, 0.4)',
+              color: '#fca5a5',
+            }}
+          >
+            {resetting ? 'Сброс...' : 'Подтвердить'}
+          </button>
+        </div>
+      )}
+    </motion.div>
+  );
+}
+
+// ============================================
 // Main Profile View
 // ============================================
 export default function ProfileView() {
   return (
-    <ScrollArea className="h-full px-1">
+    <div className="h-full overflow-y-auto overscroll-contain mobile-scroll px-1">
       <div className="p-3 space-y-4 pb-8">
         <ProfileHeader />
         <StatsGrid />
         <ReferralSection />
         <AchievementsShowcase />
         <ResourcesSummary />
+        <ResetAccountSection />
       </div>
-    </ScrollArea>
+    </div>
   );
 }
