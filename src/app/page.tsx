@@ -183,8 +183,15 @@ export default function GamePage() {
   const tutorialCompleted = useGameStore(s => s.tutorialCompleted);
   const faction = useGameStore(s => s.faction);
   const modules = useGameStore(s => s.modules);
+  const setScreen = useGameStore(s => s.setScreen);
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const saveRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Expose setScreen to window for admin access via console
+  useEffect(() => {
+    (window as any).__setScreen = setScreen;
+    return () => { delete (window as any).__setScreen; };
+  }, [setScreen]);
 
   // Initialize Telegram Web App on mount + register player + handle referrals
   useEffect(() => {

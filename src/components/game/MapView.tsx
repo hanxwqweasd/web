@@ -53,7 +53,7 @@ const TYPE_LABELS: Record<string, string> = {
 // Connection threshold — nodes within this distance get connected
 const CONNECTION_DIST = 35;
 // Drag threshold — if pointer moved less than this, it's a click
-const DRAG_THRESHOLD = 5;
+const DRAG_THRESHOLD = 12;
 
 function getNodeColor(node: MapNode): string {
   if (!node.discovered) return 'rgba(100, 100, 130, 0.25)';
@@ -124,6 +124,8 @@ export default function MapView() {
   }, [centerOnStation]);
 
   // Mouse/touch handlers for pan — using refs for drag detection
+  // NOTE: No setPointerCapture! It steals click events from child nodes.
+  // Pointer events bubble from nodes to this container, so pan still works.
   const handlePointerDown = useCallback((e: React.PointerEvent) => {
     hasMoved.current = false;
     dragStart.current = {
@@ -132,7 +134,6 @@ export default function MapView() {
       panX: pan.x,
       panY: pan.y,
     };
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
   }, [pan.x, pan.y]);
 
   const handlePointerMove = useCallback(
