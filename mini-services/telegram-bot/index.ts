@@ -2,7 +2,7 @@ import TelegramBot from "node-telegram-bot-api";
 import express from "express";
 
 // ─── Configuration ──────────────────────────────────────────────────────────
-const BOT_TOKEN = process.env.BOT_TOKEN || "8945065009:AAHqr6U-n11Mo48rKiL_Ib9DtAxJktQ4-B0";
+const BOT_TOKEN = process.env.BOT_TOKEN || "8945065009:AAFFJYPVvw_8xt4be71mxGqk9WCDRqIDqII";
 const GAME_URL = process.env.GAME_URL || "https://t.me/StarDominionBot/StarDominion";
 const PORT = parseInt(process.env.PORT || "3001", 10);
 const WEBHOOK_PATH = process.env.WEBHOOK_PATH || "/telegram-webhook";
