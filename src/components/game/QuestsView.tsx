@@ -383,7 +383,7 @@ function AchievementsTab() {
 // ============================================
 export default function QuestsView() {
   return (
-    <div className="h-full flex flex-col" style={{ background: '#0a0a1a' }}>
+    <div className="flex-1 min-h-0 flex flex-col" style={{ background: '#0a0a1a' }}>
       {/* Header */}
       <div className="flex items-center gap-2 px-4 py-3 neon-border" style={{ background: 'rgba(15, 15, 35, 0.95)' }}>
         <Trophy className="w-5 h-5 text-neon-yellow" />

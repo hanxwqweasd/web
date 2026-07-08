@@ -781,7 +781,7 @@ export default function FleetView() {
   }, [setShowCombatAnimation, setSelectedTarget, setSelectedSquadron]);
 
   return (
-    <div className="holo-transition h-full flex flex-col pb-2">
+    <div className="holo-transition flex-1 min-h-0 flex flex-col pb-2">
       {/* Tab switcher */}
       <div className="px-3 pt-2 mb-3">
         <div className="flex gap-1 p-1 rounded-xl" style={{ background: 'rgba(15, 15, 35, 0.85)' }}>

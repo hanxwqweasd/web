@@ -230,8 +230,7 @@ function RankingsList({
   if (restPlayers.length === 0) return null;
 
   return (
-    <div className="max-h-[360px] overflow-y-auto overscroll-contain mobile-scroll">
-      <div className="space-y-1.5">
+    <div className="space-y-1.5">
         {restPlayers.map((player, i) => {
           const isMe = playerIsMe(player.telegramUserId);
           return (
@@ -286,7 +285,6 @@ function RankingsList({
             </motion.div>
           );
         })}
-      </div>
     </div>
   );
 }
@@ -426,50 +424,52 @@ export default function LeaderboardView() {
   ];
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col flex-1 min-h-0">
       {/* Header */}
-      <motion.div
-        initial={{ opacity: 0, y: -10 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="flex items-center justify-between px-4 pt-3 pb-2"
-      >
-        <div className="flex items-center gap-2">
-          <Trophy className="w-5 h-5 text-neon-yellow" />
-          <h2 className="text-base font-bold neon-text-yellow">Таблица лидеров</h2>
-        </div>
-        <button
-          onClick={() => fetchLeaderboard(activeTab)}
-          disabled={loading}
-          className="w-8 h-8 rounded-lg flex items-center justify-center transition-all"
-          style={{ background: 'rgba(251, 191, 36, 0.1)', border: '1px solid rgba(251, 191, 36, 0.2)' }}
+      <div className="flex-shrink-0">
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="flex items-center justify-between px-4 pt-3 pb-2"
         >
-          <RefreshCw className={`w-3.5 h-3.5 text-neon-yellow ${loading ? 'animate-spin' : ''}`} />
-        </button>
-      </motion.div>
+          <div className="flex items-center gap-2">
+            <Trophy className="w-5 h-5 text-neon-yellow" />
+            <h2 className="text-base font-bold neon-text-yellow">Таблица лидеров</h2>
+          </div>
+          <button
+            onClick={() => fetchLeaderboard(activeTab)}
+            disabled={loading}
+            className="w-8 h-8 rounded-lg flex items-center justify-center transition-all"
+            style={{ background: 'rgba(251, 191, 36, 0.1)', border: '1px solid rgba(251, 191, 36, 0.2)' }}
+          >
+            <RefreshCw className={`w-3.5 h-3.5 text-neon-yellow ${loading ? 'animate-spin' : ''}`} />
+          </button>
+        </motion.div>
 
-      {/* Period Tabs */}
-      <div className="px-3 mb-2">
-        <Tabs value={activeTab} onValueChange={handleTabChange}>
-          <TabsList className="w-full h-8 p-0.5" style={{ background: 'rgba(15, 15, 35, 0.8)', border: '1px solid rgba(100, 200, 255, 0.1)' }}>
-            {tabConfig.map((tab) => {
-              const Icon = tab.icon;
-              return (
-                <TabsTrigger
-                  key={tab.id}
-                  value={tab.id}
-                  className="flex-1 h-7 text-[11px] gap-1 data-[state=active]:bg-cyan-500/10 data-[state=active]:text-cyan-300 data-[state=active]:shadow-none rounded-md"
-                >
-                  <Icon className="w-3 h-3" />
-                  {tab.label}
-                </TabsTrigger>
-              );
-            })}
-          </TabsList>
-        </Tabs>
+        {/* Period Tabs */}
+        <div className="px-3 mb-2">
+          <Tabs value={activeTab} onValueChange={handleTabChange}>
+            <TabsList className="w-full h-8 p-0.5" style={{ background: 'rgba(15, 15, 35, 0.8)', border: '1px solid rgba(100, 200, 255, 0.1)' }}>
+              {tabConfig.map((tab) => {
+                const Icon = tab.icon;
+                return (
+                  <TabsTrigger
+                    key={tab.id}
+                    value={tab.id}
+                    className="flex-1 h-7 text-[11px] gap-1 data-[state=active]:bg-cyan-500/10 data-[state=active]:text-cyan-300 data-[state=active]:shadow-none rounded-md"
+                  >
+                    <Icon className="w-3 h-3" />
+                    {tab.label}
+                  </TabsTrigger>
+                );
+              })}
+            </TabsList>
+          </Tabs>
+        </div>
       </div>
 
-      {/* Content */}
-      <div className="flex-1 overflow-hidden px-3">
+      {/* Scrollable content */}
+      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain mobile-scroll px-3">
         {loading ? (
           <div className="flex items-center justify-center h-40">
             <Loader2 className="w-6 h-6 text-cyan-400 animate-spin" />
@@ -496,10 +496,12 @@ export default function LeaderboardView() {
             <RankingsList players={players} startFromIndex={players.length >= 3 ? 3 : 0} playerIsMe={playerIsMe} />
           </>
         )}
-      </div>
 
-      {/* My Rank Sticky Card */}
-      <MyRankCard myRank={myRank} />
+        {/* My Rank Card at bottom (scrolls with content) */}
+        <div className="pt-2 pb-[80px]">
+          <MyRankCard myRank={myRank} />
+        </div>
+      </div>
     </div>
   );
 }

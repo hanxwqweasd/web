@@ -346,7 +346,7 @@ export default function GamePage() {
         <ResourceBar />
 
         {/* Main content area */}
-        <main className="flex-1 overflow-y-auto overflow-x-hidden pb-[70px]">
+        <main className="flex-1 min-h-0 overflow-hidden">
           <AnimatePresence mode="wait">
             <motion.div
               key={currentScreen}
@@ -354,7 +354,7 @@ export default function GamePage() {
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -10 }}
               transition={{ duration: 0.2 }}
-              className="min-h-full p-2"
+              className="h-full flex flex-col p-2"
             >
               <ScreenRenderer screen={currentScreen} />
             </motion.div>

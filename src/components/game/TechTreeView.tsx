@@ -523,7 +523,7 @@ export default function TechTreeView() {
   const handleCloseDetail = () => setSelectedTechId(null);
 
   return (
-    <div className="holo-transition h-full flex flex-col pb-2">
+    <div className="holo-transition flex-1 min-h-0 flex flex-col pb-2">
       {/* Science points header */}
       <div className="px-3 pt-2 pb-3">
         <div

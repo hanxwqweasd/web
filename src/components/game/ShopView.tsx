@@ -1,19 +1,19 @@
 'use client';
 
-import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useGameStore } from '@/lib/game/store';
 import { SHOP_ITEMS } from '@/lib/game/constants';
 import type { ShopItem } from '@/lib/game/types';
-import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
   Star, Clock, TrendingUp, FlaskConical, PlusSquare, Flame,
   Snowflake, Sparkles, Map, Package, Zap, Gift, Swords,
   Radar, Shield, Info, Send, Heart, Crown, Gem, ArrowRight,
+  MessageCircle, ExternalLink, Loader2,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { isTelegramWebApp, openStarsInvoice, getTelegramUser, hapticFeedback, onInvoiceClosed, offInvoiceClosed } from '@/lib/telegram';
+import { isTelegramWebApp, getTelegramUser, hapticFeedback, onInvoiceClosed, offInvoiceClosed } from '@/lib/telegram';
 
 // ============================================
 // Telegram Stars Donation Tiers
@@ -72,6 +72,8 @@ export default function ShopView() {
   const [activeCategory, setActiveCategory] = useState('all');
   const [purchasingTier, setPurchasingTier] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'stars' | 'shop'>('stars');
+  const [donationStatus, setDonationStatus] = useState<string | null>(null);
+  const pendingTierRef = useRef<string | null>(null);
 
   const filteredItems = useMemo(() => {
     if (activeCategory === 'all') return SHOP_ITEMS;
@@ -89,53 +91,61 @@ export default function ShopView() {
     }
   }, [buyShopItem]);
 
-  // Handle invoice_closed event — this is the reliable way to detect payment
-  // (openInvoice callback is deprecated/ignored in newer Telegram versions)
-  const handleInvoiceEvent = useCallback((event: { status: string; payload?: string }) => {
-    console.log('[Shop] invoice_closed event:', event);
-    setPurchasingTier(null);
-
-    if (event.status === 'paid' && event.payload) {
-      // Payload format: "itemId:telegramUserId"
-      const [itemId, tgUserId] = event.payload.split(':');
-      if (!itemId || !tgUserId) return;
-
-      hapticFeedback('success');
-      toast.info('⏳ Начисляем награду...');
-
-      fetch('/api/stars/claim', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ itemId, telegramUserId: tgUserId }),
-      })
-      .then(r => r.json())
-      .then(result => {
-        if (result.success) {
-          toast.success(`✅ ${result.message}`);
-          // Sync resources from DB
-          const user = getTelegramUser();
-          if (user) {
-            fetch(`/api/player?telegramUserId=${user.id}`)
-              .then(r => r.json())
-              .then(data => {
-                if (data.player) {
-                  const p = data.player;
-                  useGameStore.setState({
-                    resources: { energy: p.energy, minerals: p.minerals, bioMatter: p.bioMatter, crystals: p.crystals },
-                    starShards: p.starShards,
-                  });
-                }
-              }).catch(() => {});
-          }
-        } else {
-          toast.error(result.error || 'Ошибка начисления');
+  // ---- Claim rewards after payment ----
+  const claimRewards = useCallback((itemId: string, tgUserId: string) => {
+    toast.info('⏳ Начисляем награду...');
+    fetch('/api/stars/claim', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ itemId, telegramUserId: tgUserId }),
+    })
+    .then(r => r.json())
+    .then(result => {
+      if (result.success) {
+        toast.success(`✅ ${result.message}`);
+        hapticFeedback('success');
+        // Sync resources from DB
+        const user = getTelegramUser();
+        if (user) {
+          fetch(`/api/player?telegramUserId=${user.id}`)
+            .then(r => r.json())
+            .then(data => {
+              if (data.player) {
+                const p = data.player;
+                useGameStore.setState({
+                  resources: { energy: p.energy, minerals: p.minerals, bioMatter: p.bioMatter, crystals: p.crystals },
+                  starShards: p.starShards,
+                });
+              }
+            }).catch(() => {});
         }
-      })
-      .catch(() => toast.error('Сетевая ошибка'));
-    }
+      } else {
+        toast.error(result.error || 'Ошибка начисления');
+      }
+    })
+    .catch(() => toast.error('Сетевая ошибка при начислении'));
   }, []);
 
-  // Register invoice_closed event listener on mount
+  // ---- Handle invoice_closed event (primary payment detection) ----
+  const handleInvoiceEvent = useCallback((event: { status: string; payload?: string }) => {
+    console.log('[Shop] invoice_closed event:', JSON.stringify(event));
+    setPurchasingTier(null);
+    setDonationStatus(null);
+
+    if (event.status === 'paid' && event.payload) {
+      const [itemId, tgUserId] = event.payload.split(':');
+      if (itemId && tgUserId) {
+        claimRewards(itemId, tgUserId);
+      }
+    } else if (event.status === 'cancelled') {
+      toast('Оплата отменена');
+    } else if (event.status === 'failed') {
+      toast.error('Оплата не удалась');
+      hapticFeedback('error');
+    }
+  }, [claimRewards]);
+
+  // Register invoice_closed event listener
   useEffect(() => {
     if (isTelegramWebApp()) {
       onInvoiceClosed(handleInvoiceEvent);
@@ -143,42 +153,156 @@ export default function ShopView() {
     }
   }, [handleInvoiceEvent]);
 
-  const handleStarsDonation = useCallback(async (tierId: string) => {
-    if (!isTelegramWebApp()) {
-      toast.error('Откройте игру через Telegram для доната');
-      return;
-    }
+  // ---- Sync resources from DB (for sendInvoice flow where no event fires) ----
+  const syncResourcesFromDb = useCallback(() => {
     const user = getTelegramUser();
-    if (!user) { toast.error('Ошибка получения данных'); return; }
+    if (!user) return;
+    fetch(`/api/player?telegramUserId=${user.id}`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.player) {
+          const p = data.player;
+          useGameStore.setState({
+            resources: { energy: p.energy, minerals: p.minerals, bioMatter: p.bioMatter, crystals: p.crystals },
+            starShards: p.starShards,
+          });
+          toast.success('✅ Ресурсы синхронизированы');
+          hapticFeedback('success');
+        }
+      }).catch(() => {});
+  }, []);
 
-    setPurchasingTier(tierId);
-    hapticFeedback('light');
+  // ---- Method 1: createInvoiceLink + openInvoice (native WebApp payment) ----
+  const openInvoiceNative = useCallback(async (tierId: string, url: string) => {
+    if (!isTelegramWebApp()) return false;
 
     try {
+      const webApp = window.Telegram?.WebApp;
+      if (!webApp?.openInvoice) {
+        console.log('[Stars] openInvoice not available');
+        return false;
+      }
+
+      const result = webApp.openInvoice(url);
+      console.log('[Stars] openInvoice returned:', result);
+
+      // If openInvoice returns a non-empty string, it might be a fallback URL
+      if (result && result.startsWith('http')) {
+        console.log('[Stars] openInvoice returned URL, opening externally');
+        window.open(result, '_blank');
+      }
+
+      // Assume success — invoice_closed event will handle the rest
+      setDonationStatus('Ожидание оплаты...');
+      return true;
+    } catch (err) {
+      console.error('[Stars] openInvoice error:', err);
+      return false;
+    }
+  }, []);
+
+  // ---- Method 2: sendInvoice to user's chat (bot sends invoice message) ----
+  const sendInvoiceToChat = useCallback(async (tierId: string, telegramUserId: string) => {
+    try {
+      const res = await fetch('/api/stars/send-invoice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ itemId: tierId, telegramUserId }),
+      });
+      const data = await res.json() as { success?: boolean; error?: string };
+
+      if (data.success) {
+        toast.success('📩 Счёт отправлен в чат с ботом! Откройте чат и оплатите.');
+        hapticFeedback('success');
+        setDonationStatus('Счёт в чате — оплатите там');
+        return true;
+      } else {
+        console.error('[Stars] sendInvoice failed:', data.error);
+        return false;
+      }
+    } catch (err) {
+      console.error('[Stars] sendInvoice error:', err);
+      return false;
+    }
+  }, []);
+
+  // ---- Main donation handler ----
+  const handleStarsDonation = useCallback(async (tierId: string) => {
+    const user = getTelegramUser();
+    const userId = user ? String(user.id) : '0';
+
+    if (!user) {
+      toast.error('Ошибка: не удалось получить данные пользователя');
+      return;
+    }
+
+    setPurchasingTier(tierId);
+    setDonationStatus('Создание счёта...');
+    hapticFeedback('light');
+    pendingTierRef.current = tierId;
+
+    try {
+      // Step 1: Create invoice link
       const res = await fetch('/api/stars/invoice', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ itemId: tierId, telegramUserId: String(user.id) }),
+        body: JSON.stringify({ itemId: tierId, telegramUserId: userId }),
       });
       const data = await res.json() as { url?: string; error?: string };
 
       if (!res.ok || !data.url) {
-        toast.error(data.error || 'Ошибка создания счёта');
+        const errMsg = data.error || 'Ошибка создания счёта';
+        console.error('[Stars] Invoice creation failed:', errMsg);
+        toast.error(`❌ ${errMsg}`);
+        setPurchasingTier(null);
+        setDonationStatus(null);
+        return;
+      }
+
+      console.log('[Stars] Invoice URL received:', data.url.substring(0, 50) + '...');
+
+      // Step 2a: Try native openInvoice (WebApp method)
+      if (isTelegramWebApp()) {
+        const nativeOk = await openInvoiceNative(tierId, data.url);
+        if (nativeOk) return; // Success — wait for invoice_closed event
+        console.log('[Stars] Native openInvoice failed, trying fallback...');
+      }
+
+      // Step 2b: Fallback — send invoice to chat via bot
+      setDonationStatus('Отправка в чат...');
+      const chatOk = await sendInvoiceToChat(tierId, userId);
+      if (chatOk) {
         setPurchasingTier(null);
         return;
       }
 
-      // Open the native Telegram payment window
-      // Payment result is handled by the invoice_closed event listener above
-      openStarsInvoice(data.url);
-    } catch {
+      // Step 2c: Last resort — open URL directly
+      setDonationStatus(null);
+      console.log('[Stars] Trying direct URL open...');
+      try {
+        window.open(data.url, '_blank');
+        toast.info('Счёт открыт в новой вкладке. Оплатите и вернитесь.');
+        setDonationStatus('Ожидание оплаты (вкладка)');
+        // Auto-check after 30s
+        setTimeout(() => {
+          setPurchasingTier(null);
+          setDonationStatus(null);
+          syncResourcesFromDb();
+        }, 30000);
+      } catch {
+        toast.error('Не удалось открыть окно оплаты');
+        setPurchasingTier(null);
+      }
+    } catch (err) {
+      console.error('[Stars] Unexpected error:', err);
       toast.error('Сетевая ошибка');
       setPurchasingTier(null);
+      setDonationStatus(null);
     }
-  }, []);
+  }, [openInvoiceNative, sendInvoiceToChat, syncResourcesFromDb]);
 
   return (
-    <div className="h-full flex flex-col" style={{ background: '#0a0a1a' }}>
+    <div className="flex-1 min-h-0 flex flex-col" style={{ background: '#0a0a1a' }}>
       {/* Header */}
       <div className="flex-shrink-0 px-3 py-2.5 neon-border" style={{ background: 'rgba(15, 15, 35, 0.95)' }}>
         <div className="flex items-center justify-between">
@@ -220,15 +344,23 @@ export default function ShopView() {
       </div>
 
       {/* Scrollable content */}
-      <div className="flex-1 overflow-y-auto overscroll-contain mobile-scroll">
+      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain mobile-scroll">
         <AnimatePresence mode="wait">
           {activeTab === 'stars' ? (
             <motion.div key="stars" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="p-3 space-y-3">
+              {/* Status banner */}
+              {donationStatus && (
+                <div className="rounded-xl px-3 py-2.5 flex items-center gap-2.5" style={{ background: 'rgba(251, 191, 36, 0.08)', border: '1px solid rgba(251, 191, 36, 0.2)' }}>
+                  <Loader2 className="w-4 h-4 flex-shrink-0 text-neon-yellow animate-spin" />
+                  <p className="text-[11px] text-neon-yellow leading-snug">{donationStatus}</p>
+                </div>
+              )}
+
               {/* Info banner */}
               <div className="rounded-xl px-3 py-2.5 flex items-center gap-2.5" style={{ background: 'rgba(34, 197, 94, 0.08)', border: '1px solid rgba(34, 197, 94, 0.2)' }}>
                 <Send className="w-4 h-4 flex-shrink-0" style={{ color: '#22c55e' }} />
                 <p className="text-[11px] text-muted-foreground leading-snug">
-                  {isTelegramWebApp() ? 'Поддержите игру и получите бонусы!' : 'Доступно только через Telegram бота'}
+                  Поддержите игру через Telegram Stars и получите бонусы!
                 </p>
               </div>
 
@@ -241,13 +373,17 @@ export default function ShopView() {
                   <motion.button
                     key={tier.id}
                     whileTap={{ scale: 0.98 }}
-                    disabled={!isTelegramWebApp() || isPurchasing}
+                    disabled={isPurchasing}
                     onClick={() => handleStarsDonation(tier.id)}
-                    className="w-full flex items-center gap-3 rounded-xl p-3 text-left transition-colors active:bg-white/5"
+                    className="w-full flex items-center gap-3 rounded-xl p-3 text-left transition-colors active:bg-white/5 disabled:opacity-60"
                     style={{ background: `${tier.color}06`, border: `1px solid ${tier.color}20` }}
                   >
                     <div className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: `${tier.color}12`, border: `1px solid ${tier.color}25` }}>
-                      <Icon className="w-5 h-5" style={{ color: tier.color }} />
+                      {isPurchasing ? (
+                        <Loader2 className="w-5 h-5 animate-spin" style={{ color: tier.color }} />
+                      ) : (
+                        <Icon className="w-5 h-5" style={{ color: tier.color }} />
+                      )}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
@@ -259,19 +395,26 @@ export default function ShopView() {
                       <p className="text-[10px] font-mono text-muted-foreground mt-0.5 truncate">{tier.reward}</p>
                     </div>
                     <div className="flex-shrink-0">
-                      {isPurchasing ? (
-                        <div className="w-9 h-9 flex items-center justify-center rounded-lg" style={{ background: `${tier.color}15` }}>
-                          <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" style={{ color: tier.color }} />
-                        </div>
-                      ) : (
-                        <div className="w-9 h-9 flex items-center justify-center rounded-lg" style={{ background: `${tier.color}15`, border: `1px solid ${tier.color}30` }}>
-                          <ArrowRight className="w-4 h-4" style={{ color: tier.color }} />
-                        </div>
-                      )}
+                      <div className="w-9 h-9 flex items-center justify-center rounded-lg" style={{ background: `${tier.color}15`, border: `1px solid ${tier.color}30` }}>
+                        <ArrowRight className="w-4 h-4" style={{ color: tier.color }} />
+                      </div>
                     </div>
                   </motion.button>
                 );
               })}
+
+              {/* Manual sync button (if user paid but rewards not credited) */}
+              <button
+                onClick={syncResourcesFromDb}
+                className="w-full py-2.5 rounded-xl text-xs font-medium transition-all"
+                style={{
+                  background: 'rgba(100, 200, 255, 0.06)',
+                  border: '1px solid rgba(100, 200, 255, 0.15)',
+                  color: '#64748b',
+                }}
+              >
+                🔄 Оплатил, но не получил? Нажми для синхронизации
+              </button>
             </motion.div>
           ) : (
             <motion.div key="shop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>

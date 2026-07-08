@@ -78,7 +78,7 @@ const KEYBOARD = {
 
 const ADMIN_KEYBOARD = {
   inline_keyboard: [
-    [{ text: "⚙️ Открыть Админ-панель", web_app: { url: `${GAME_URL}?startapp=admin` } }],
+    [{ text: "⚙️ Открыть Админ-панель", web_app: { url: GAME_URL, start_parameter: "admin" } }],
   ],
 };
 
@@ -152,13 +152,46 @@ function handleUpdate(update) {
     api("answerPreCheckoutQuery", { pre_checkout_query_id: q.id, ok: true });
   }
 
-  // Handle successful_payment
+  // Handle successful_payment — grant rewards via game API
   if (msg?.successful_payment) {
     const p = msg.successful_payment;
-    console.log(`[BOT] Payment: user=${msg.from.id} payload=${p.invoice_payload} amount=${p.total_amount}`);
-    sendMessage(msg.chat.id,
-      `<b>✅ Оплата прошла успешно!</b>\n\nСпасибо за покупку, Капитан!\n\nStar Dominion продолжает развиваться благодаря вашей поддержке. Скоро увидимся в секторе Андромеда-7! ⭐`
-    );
+    const userId = msg.from.id;
+    const payload = p.invoice_payload || "";
+    console.log(`[BOT] Payment SUCCESS: user=${userId} payload=${payload} amount=${p.total_amount}`);
+
+    // Parse payload: "itemId:telegramUserId"
+    const parts = payload.split(":");
+    const itemId = parts[0];
+    const tgUserId = parts[1] || String(userId);
+
+    if (itemId && tgUserId) {
+      try {
+        // Call game API to claim rewards
+        const claimUrl = `${GAME_URL}/api/stars/claim`;
+        const claimRes = await fetch(claimUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ itemId, telegramUserId: tgUserId }),
+        });
+        const claimData = await claimRes.json();
+        console.log(`[BOT] Claim result:`, JSON.stringify(claimData));
+
+        if (claimData.success) {
+          sendMessage(msg.chat.id,
+            `<b>✅ Оплата прошла успешно!</b>\n\n${claimData.message}\n\nНаграда начислена. Откройте игру, чтобы увидеть обновлённые ресурсы! ⭐`
+          );
+        } else {
+          sendMessage(msg.chat.id,
+            `<b>✅ Оплата получена!</b>\n\nНо начисление награды временно задерживается. Откройте игру — ресурсы обновятся автоматически.`
+          );
+        }
+      } catch (claimErr) {
+        console.error("[BOT] Claim error:", claimErr?.message);
+        sendMessage(msg.chat.id,
+          `<b>✅ Оплата получена!</b>\n\nОткройте игру — награда будет начислена при следующем входе.`
+        );
+      }
+    }
   }
 }
 

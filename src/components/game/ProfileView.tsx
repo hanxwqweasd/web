@@ -663,8 +663,8 @@ function ResetAccountSection() {
 // ============================================
 export default function ProfileView() {
   return (
-    <div className="h-full overflow-y-auto overscroll-contain mobile-scroll px-1">
-      <div className="p-3 space-y-4 pb-8">
+    <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain mobile-scroll px-1 pb-[70px]">
+      <div className="p-3 space-y-4">
         <ProfileHeader />
         <StatsGrid />
         <ReferralSection />

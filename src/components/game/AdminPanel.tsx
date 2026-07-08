@@ -85,7 +85,7 @@ export default function AdminPanel() {
 
   if (!isUnlocked) {
     return (
-      <div className="h-full flex flex-col items-center justify-center p-6" style={{ background: '#0a0a1a' }}>
+      <div className="flex-1 min-h-0 flex flex-col items-center justify-center p-6" style={{ background: '#0a0a1a' }}>
         <motion.div
           animate={{ rotate: [0, 5, -5, 0] }}
           transition={{ duration: 2, repeat: Infinity }}
@@ -105,7 +105,7 @@ export default function AdminPanel() {
   }
 
   return (
-    <div className="h-full flex flex-col" style={{ background: '#0a0a1a' }}>
+    <div className="flex-1 min-h-0 flex flex-col" style={{ background: '#0a0a1a' }}>
       <div className="px-4 py-3 neon-border" style={{ background: 'rgba(15, 15, 35, 0.95)' }}>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
