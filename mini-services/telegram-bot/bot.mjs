@@ -1,63 +1,63 @@
 // Zero-dependency Telegram bot using native fetch
-// Auto-restarts polling on any error
+// Uses HTML parse_mode (reliable, no escaping issues)
 
 const TOKEN = "8945065009:AAFFJYPVvw_8xt4be71mxGqk9WCDRqIDqII";
 const GAME_URL = "https://t.me/StarDominionBot/StarDominion";
 const API = `https://api.telegram.org/bot${TOKEN}`;
 
-const WELCOME = `🚀 *STAR DOMINION*
+const WELCOME = `<b>🚀 STAR DOMINION</b>
 
-Добро пожаловать, Капитан\\!
-Вы назначены командиром заброшенной космической станции в секторе Андромеда\\-7\\.
+Добро пожаловать, Капитан!
+Вы назначены командиром заброшенной космической станции в секторе Андромеда-7.
 
 🏰 Стройте и развивайте станцию
 ⚗️ Исследуйте технологии
 🚀 Создавайте флот и побеждайте пиратов
 🗺️ Исследуйте карту сектора
 
-Присоединяйтесь к тысячам капитанов, которые уже строят свою империю среди звёзд\\!`;
+Присоединяйтесь к тысячам капитанов, которые уже строят свою империю среди звёзд!`;
 
-const FULL_INFO = `📖 *Полная информация — Star Dominion*
+const FULL_INFO = `<b>📖 Полная информация — Star Dominion</b>
 
-🎮 *Об игре:*
-Star Dominion — это глубокая космическая стратегия и симулятор колонии\\. Управляйте космической станцией в загадочном секторе Андромеда\\-7\\.
+<b>🎮 Об игре:</b>
+Star Dominion — это глубокая космическая стратегия и симулятор колонии. Управляйте космической станцией в загадочном секторе Андромеда-7.
 
-🏗️ *Строительство:*
+<b>🏗️ Строительство:</b>
 • Стройте модули: Генераторы, Майнеры, Лаборатории, Верфи и другие
 • Улучшайте модули для увеличения эффективности
 • Управляйте комнатами станции
 
-🔬 *Исследования:*
-• 4 ветки технологий: Военная, Инженерная, Биологическая, Психо\\-Энергетическая
+<b>🔬 Исследования:</b>
+• 4 ветки технологий: Военная, Инженерная, Биологическая, Психо-Энергетическая
 • Открывайте новые модули и возможности
 
-🚀 *Флот:*
+<b>🚀 Флот:</b>
 • Стройте корабли разных классов
 • Создавайте эскадры
 • Сражайтесь с пиратами и другими игроками
 
-🗺️ *Карта сектора:*
-• Исследуйте узлы сектора Андромеда\\-7
+<b>🗺️ Карта сектора:</b>
+• Исследуйте узлы сектора Андромеда-7
 • Находите ресурсы и артефакты
 
-💰 *Ресурсы:*
+<b>💰 Ресурсы:</b>
 • ⚡ Энергия — питание станции
 • 🪨 Минералы — строительные материалы
 • 🧪 Данные — для исследований
 • 💎 Кристаллы — премиум валюта
 
-🏆 *Профиль и Рейтинг:*
+<b>🏆 Профиль и Рейтинг:</b>
 • Отслеживайте свои достижения
 • Соревнуйтесь с другими капитанами
 
-👥 *Реферальная система:*
+<b>👥 Реферальная система:</b>
 • Приглашайте друзей и получайте бонусы
 
-❓ *Команды:*
+<b>❓ Команды:</b>
 /start — Начать игру
 /help — Справка
 
-Играйте прямо в Telegram\\!`;
+Играйте прямо в Telegram!`;
 
 const KEYBOARD = {
   inline_keyboard: [
@@ -80,16 +80,19 @@ async function api(method, body = {}) {
 }
 
 async function sendMessage(chatId, text, keyboard) {
-  try {
-    await api("sendMessage", {
-      chat_id: chatId,
-      text,
-      parse_mode: "MarkdownV2",
-      reply_markup: keyboard,
-    });
-  } catch {
-    // fallback plain text
-    const plain = text.replace(/[*_~`\\()!#\[\]{}|+.]/g, "");
+  // Try with HTML formatting
+  const result = await api("sendMessage", {
+    chat_id: chatId,
+    text,
+    parse_mode: "HTML",
+    reply_markup: keyboard,
+  });
+
+  // If HTML fails, retry as plain text
+  if (!result.ok) {
+    console.error("[BOT] sendMessage failed:", result.description);
+    // Strip HTML tags for plain text fallback
+    const plain = text.replace(/<[^>]+>/g, "");
     await api("sendMessage", { chat_id: chatId, text: plain, reply_markup: keyboard });
   }
 }
@@ -135,7 +138,7 @@ function handleUpdate(update) {
     const p = msg.successful_payment;
     console.log(`[BOT] Payment: user=${msg.from.id} payload=${p.invoice_payload} amount=${p.total_amount}`);
     sendMessage(msg.chat.id,
-      `✅ *Оплата прошла успешно\\!\n\nСпасибо за покупку, Капитан\\!\n\nStar Dominion продолжает развиваться благодаря вашей поддержке\\. Скоро увидимся в секторе Андромеда\\-7\\! ⭐`
+      `<b>✅ Оплата прошла успешно!</b>\n\nСпасибо за покупку, Капитан!\n\nStar Dominion продолжает развиваться благодаря вашей поддержке. Скоро увидимся в секторе Андромеда-7! ⭐`
     );
   }
 }
@@ -151,14 +154,14 @@ async function poll() {
         }
       }
     } catch (err) {
-      console.error(`[BOT] Poll error:`, err?.message || err);
-      await new Promise((r) => setTimeout(r, 5000)); // wait before retry
+      console.error("[BOT] Poll error:", err?.message || err);
+      await new Promise((r) => setTimeout(r, 5000));
     }
   }
 }
 
 // Start
-console.log("[BOT] Star Dominion Bot starting (zero-dep mode)...");
+console.log("[BOT] Star Dominion Bot starting (zero-dep, HTML mode)...");
 console.log(`[BOT] Token: ${TOKEN.substring(0, 10)}...`);
 console.log(`[BOT] Game URL: ${GAME_URL}`);
 poll().catch((err) => {
