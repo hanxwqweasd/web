@@ -7,7 +7,6 @@ import { RESOURCE_CONFIG } from '@/lib/game/constants';
 import type { MapNode } from '@/lib/game/types';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Crosshair,
   Eye,
@@ -525,7 +524,7 @@ export default function MapView() {
               maxHeight: '55vh',
             }}
           >
-            <ScrollArea className="max-h-[55vh]">
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain mobile-scroll max-h-[55vh]">
               <div className="p-4">
                 {/* Header */}
                 <div className="flex items-start justify-between mb-3">
@@ -693,7 +692,7 @@ export default function MapView() {
                   )}
                 </div>
               </div>
-            </ScrollArea>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>

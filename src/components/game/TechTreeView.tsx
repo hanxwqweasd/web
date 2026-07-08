@@ -8,7 +8,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Progress } from '@/components/ui/progress';
 import {
   Swords, Settings, Sprout, Brain, ShieldCheck, Bomb, Crown,
@@ -585,7 +584,7 @@ export default function TechTreeView() {
       </div>
 
       {/* Tech tree content */}
-      <ScrollArea className="flex-1 px-3">
+      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain mobile-scroll px-3">
         {activeBranch === 'all' ? (
           /* Grid view: all branches side by side */
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pb-24">
@@ -614,7 +613,7 @@ export default function TechTreeView() {
             />
           </div>
         )}
-      </ScrollArea>
+      </div>
 
       {/* Detail panel overlay */}
       <AnimatePresence>

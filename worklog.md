@@ -304,3 +304,26 @@ Stage Summary:
 - ShopView now has simple 2-step flow: click → check payment
 - Bot needs API_URL env var on Railway (e.g. https://star-dominion-web.up.railway.app)
 - Files changed: ShopView.tsx, bot.mjs, page.tsx, claim/route.ts
+
+---
+Task ID: 2
+Agent: main
+Task: Multiple fixes: scrolling, quests, referral, instant build, map, shop emojis
+
+Work Log:
+- Fixed scrolling: replaced ScrollArea with native scroll (flex-1 min-h-0 overflow-y-auto overscroll-contain mobile-scroll) in TechTreeView, QuestsView, FleetView, MapView
+- Fixed StationView: changed root from min-h-[calc(100vh-120px)] to flex-1 min-h-0, added scroll to module grid
+- Reduced daily quest shard rewards: 30/50/20/40 → 5/8/3/6
+- Fixed referral link: /game → /StarDominion (correct WebApp short name)
+- Reduced referral shard bonus: 50 → 10
+- Made instant build paid: 1 crystal per 60 seconds remaining, min 1. Shows cost on button.
+- Added 11 new map nodes (12 → 23 total): new stations, pirates, anomalies, empty sectors
+- Removed ALL emojis from ShopView (tabs, rewards, buttons, toasts)
+- Removed emojis from ProfileView referral section
+
+Stage Summary:
+- All views now scroll properly with native scroll
+- Donation flow: click → bot sends invoice → pay in chat → sync
+- Referral link fixed, was pointing to wrong WebApp path
+- Instant build costs crystals proportional to remaining time
+- Map expanded from 12 to 23 nodes

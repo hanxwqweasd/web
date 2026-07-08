@@ -294,7 +294,7 @@ function ReferralSection() {
 
   const copyReferralLink = useCallback(() => {
     if (!referralData) return;
-    const link = `https://t.me/StarDominionBot/game?startapp=${referralData.referralCode}`;
+    const link = `https://t.me/StarDominionBot/StarDominion?startapp=${referralData.referralCode}`;
     navigator.clipboard.writeText(link).then(() => {
       setCopied(true);
       hapticFeedback('success');
@@ -379,7 +379,7 @@ function ReferralSection() {
       {/* Who referred you */}
       {referralData.referredBy && (
         <div className="text-[10px] text-slate-500 p-2 rounded-lg mb-2" style={{ background: 'rgba(251, 191, 36, 0.06)', border: '1px solid rgba(251, 191, 36, 0.12)' }}>
-          👤 Пригласил: <span className="text-neon-yellow">{referralData.referredBy.firstName}{referralData.referredBy.username ? ` (@${referralData.referredBy.username})` : ''}</span>
+          Пригласил: <span className="text-neon-yellow">{referralData.referredBy.firstName}{referralData.referredBy.username ? ` (@${referralData.referredBy.username})` : ''}</span>
         </div>
       )}
 
@@ -388,7 +388,7 @@ function ReferralSection() {
         className="text-[10px] text-slate-500 p-2 rounded-lg mb-3"
         style={{ background: 'rgba(34, 197, 94, 0.06)', border: '1px solid rgba(34, 197, 94, 0.12)' }}
       >
-        🎁 Награда за каждого друга: <span className="text-neon-green">+200 минералов</span>, <span className="text-neon-yellow">+100 энергии</span>, <span className="text-neon-purple">+50 осколков</span>
+        Награда за каждого друга: <span className="text-neon-green">+200 минералов</span>, <span className="text-neon-yellow">+100 энергии</span>, <span className="text-neon-purple">+10 осколков</span>
       </div>
 
       {/* Referred friends list */}

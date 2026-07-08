@@ -71,7 +71,7 @@ export async function POST(request: NextRequest) {
     // Apply referral
     const BONUS_MINERALS = 200;
     const BONUS_ENERGY = 100;
-    const BONUS_SHARDS = 50;
+    const BONUS_SHARDS = 10;
 
     await db.$transaction([
       // Set referredBy on the new player and give bonus

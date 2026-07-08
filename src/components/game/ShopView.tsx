@@ -23,7 +23,7 @@ const STARS_DONATION_TIERS = [
     id: 'support',
     name: 'Поддержка',
     stars: 1,
-    reward: '500⚡ 500🪨 200🧪 10⭐',
+    reward: '500 энерг 500 мин 200 био 10 оск',
     icon: Heart,
     color: '#22c55e',
   },
@@ -31,7 +31,7 @@ const STARS_DONATION_TIERS = [
     id: 'ally',
     name: 'Союзник',
     stars: 5,
-    reward: '5000🪨 3000⚡ 1000🧪 100⭐',
+    reward: '5000 мин 3000 энерг 1000 био 100 оск',
     icon: Send,
     color: '#00f0ff',
   },
@@ -39,7 +39,7 @@ const STARS_DONATION_TIERS = [
     id: 'patron',
     name: 'Покровитель',
     stars: 25,
-    reward: '5000⚡ 5000🪨 100💎 500⭐',
+    reward: '5000 всех + 100 крист 500 оск',
     icon: Gem,
     color: '#a855f7',
   },
@@ -47,7 +47,7 @@ const STARS_DONATION_TIERS = [
     id: 'legend',
     name: 'Легенда',
     stars: 100,
-    reward: '10000 всех + 500💎 2000⭐',
+    reward: '10000 всех + 500 крист 2000 оск',
     icon: Crown,
     color: '#fbbf24',
   },
@@ -114,9 +114,9 @@ export default function ShopView() {
       if (data.success) {
         setSentTier(tierId);
         hapticFeedback('success');
-        toast.success('📩 Счёт отправлен в чат!');
+        toast.success('Счёт отправлен в чат!');
       } else {
-        toast.error(`❌ ${data.error || 'Ошибка отправки счёта'}`);
+        toast.error(data.error || 'Ошибка отправки счёта');
         hapticFeedback('error');
       }
     } catch {
@@ -147,7 +147,7 @@ export default function ShopView() {
             },
             starShards: p.starShards || 0,
           });
-          toast.success('✅ Ресурсы обновлены!');
+          toast.success('Ресурсы обновлены!');
           hapticFeedback('success');
           setSentTier(null);
         } else {
@@ -184,7 +184,7 @@ export default function ShopView() {
               borderBottom: activeTab === 'stars' ? '2px solid #22c55e' : '2px solid transparent',
             }}
           >
-            ⭐ Звёзды
+            Звёзды
           </button>
           <button
             onClick={() => setActiveTab('shop')}
@@ -195,7 +195,7 @@ export default function ShopView() {
               borderBottom: activeTab === 'shop' ? '2px solid #fbbf24' : '2px solid transparent',
             }}
           >
-            🪙 Осколки
+            Осколки
           </button>
         </div>
       </div>
@@ -251,7 +251,7 @@ export default function ShopView() {
                         ) : (
                           <RefreshCw className="w-3.5 h-3.5" />
                         )}
-                        {checking ? 'Проверяем...' : '✅ Проверить оплату'}
+                        {checking ? 'Проверяем...' : 'Проверить оплату'}
                       </button>
                     </div>
                   </motion.div>
@@ -283,7 +283,7 @@ export default function ShopView() {
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-bold text-foreground">{tier.name}</span>
                         <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-md" style={{ background: `${tier.color}15`, color: tier.color, border: `1px solid ${tier.color}30` }}>
-                          ⭐ {tier.stars}
+                          <Star className="w-2.5 h-2.5 inline -mt-px" /> {tier.stars}
                         </span>
                       </div>
                       <p className="text-[10px] font-mono text-muted-foreground mt-0.5 truncate">{tier.reward}</p>
@@ -314,7 +314,7 @@ export default function ShopView() {
                   ) : (
                     <RefreshCw className="w-3.5 h-3.5" />
                   )}
-                  {checking ? 'Проверяем...' : '🔄 Оплатил ранее? Нажми для синхронизации'}
+                  {checking ? 'Проверяем...' : 'Оплатил ранее? Нажми для синхронизации'}
                 </button>
               )}
             </motion.div>

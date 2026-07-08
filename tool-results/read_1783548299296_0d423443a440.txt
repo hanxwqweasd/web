@@ -1,0 +1,1200 @@
+     1→'use client';
+     2→
+     3→import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+     4→import { useGameStore } from '@/lib/game/store';
+     5→import {
+     6→  SHIP_DEFS, SHIP_CLASS_NAMES, COMBAT_TACTIC_CONFIG, RESOURCE_CONFIG,
+     7→} from '@/lib/game/constants';
+     8→import type { CombatTactic, CombatResult, ShipDef, Ship, Squadron, MapNode } from '@/lib/game/types';
+     9→import { motion, AnimatePresence } from 'framer-motion';
+    10→import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+    11→import { Badge } from '@/components/ui/badge';
+    12→import { Button } from '@/components/ui/button';
+    13→import { ScrollArea } from '@/components/ui/scroll-area';
+    14→import { Progress } from '@/components/ui/progress';
+    15→import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+    16→import {
+    17→  Plane, PlaneTakeoff, Ship as ShipIcon, EyeOff, Bug, Anchor, Warehouse, Crown,
+    18→  Plus, Swords, Shield, Eye, Zap, Diamond, ChevronRight, Trophy,
+    19→  Skull, Star, Target, Crosshair, Rocket, Users, Wrench, Minus,
+    20→  Sparkles, Bomb, Flame, ScrollText,
+    21→} from 'lucide-react';
+    22→
+    23→// ── Icon map ──────────────────────────────────────────────
+    24→const ICON_MAP: Record<string, React.ComponentType<{ className?: string; style?: React.CSSProperties }>> = {
+    25→  Plane, PlaneTakeoff, Ship: ShipIcon, EyeOff, Bug, Anchor, Warehouse, Crown,
+    26→  Swords, Shield, Eye, Zap, Diamond, Crosshair, Rocket, Sparkles, Bomb, Flame, Wrench,
+    27→};
+    28→
+    29→// ── Tactic icon map ───────────────────────────────────────
+    30→const TACTIC_ICON_MAP: Record<CombatTactic, React.ComponentType<{ className?: string }>> = {
+    31→  aggressive: Swords,
+    32→  defensive: Shield,
+    33→  recon: Eye,
+    34→};
+    35→
+    36→// ── Format number ─────────────────────────────────────────
+    37→function fmt(n: number): string {
+    38→  if (n >= 10000) return `${(n / 1000).toFixed(1)}k`;
+    39→  return Math.floor(n).toLocaleString('ru-RU');
+    40→}
+    41→
+    42→function fmtTime(seconds: number): string {
+    43→  if (seconds < 60) return `${seconds}с`;
+    44→  const m = Math.floor(seconds / 60);
+    45→  const s = seconds % 60;
+    46→  return s > 0 ? `${m}м ${s}с` : `${m}м`;
+    47→}
+    48→
+    49→// ── Resource row for costs ────────────────────────────────
+    50→function CostRow({ cost }: { cost: Partial<Record<'energy' | 'minerals' | 'bioMatter' | 'crystals', number>> }) {
+    51→  return (
+    52→    <div className="flex flex-wrap gap-2">
+    53→      {(Object.entries(cost) as [keyof typeof cost, number][]).map(([key, val]) => {
+    54→        if (!val) return null;
+    55→        const cfg = RESOURCE_CONFIG[key];
+    56→        const Icon = ICON_MAP[cfg.icon] || Zap;
+    57→        return (
+    58→          <span key={key} className="flex items-center gap-0.5 text-[10px] font-mono">
+    59→            <Icon className="w-3 h-3" style={{ color: cfg.color }} />
+    60→            <span style={{ color: cfg.color }}>{fmt(val)}</span>
+    61→          </span>
+    62→        );
+    63→      })}
+    64→    </div>
+    65→  );
+    66→}
+    67→
+    68→// ── Danger stars ──────────────────────────────────────────
+    69→function DangerStars({ danger }: { danger: number }) {
+    70→  return (
+    71→    <div className="flex gap-0.5">
+    72→      {Array.from({ length: 10 }).map((_, i) => (
+    73→        <Star
+    74→          key={i}
+    75→          className={`w-2.5 h-2.5 ${i < danger ? 'fill-red-400 text-red-400' : 'text-gray-600'}`}
+    76→        />
+    77→      ))}
+    78→    </div>
+    79→  );
+    80→}
+    81→
+    82→// ── Combat animation overlay ──────────────────────────────
+    83→function CombatAnimation({
+    84→  result,
+    85→  onComplete,
+    86→}: {
+    87→  result: CombatResult;
+    88→  onComplete: () => void;
+    89→}) {
+    90→  const [phase, setPhase] = useState<'laser' | 'explosion' | 'result'>('laser');
+    91→  const [damageNums, setDamageNums] = useState<{ id: number; x: number; y: number; val: number; isHeal?: boolean }[]>([]);
+    92→
+    93→  useEffect(() => {
+    94→    const t1 = setTimeout(() => setPhase('explosion'), 800);
+    95→    const t2 = setTimeout(() => {
+    96→      setPhase('result');
+    97→      // Generate floating damage numbers
+    98→      const nums = Array.from({ length: 6 }).map((_, i) => ({
+    99→        id: i,
+   100→        x: 20 + Math.random() * 60,
+   101→        y: 30 + Math.random() * 30,
+   102→        val: Math.floor(Math.random() * 50) + 10,
+   103→        isHeal: result.victory && i % 3 === 0,
+   104→      }));
+   105→      setDamageNums(nums);
+   106→    }, 1600);
+   107→    const t3 = setTimeout(onComplete, 3500);
+   108→    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
+   109→  }, [result, onComplete]);
+   110→
+   111→  return (
+   112→    <motion.div
+   113→      initial={{ opacity: 0 }}
+   114→      animate={{ opacity: 1 }}
+   115→      exit={{ opacity: 0 }}
+   116→      className="fixed inset-0 z-50 flex items-center justify-center"
+   117→      style={{ background: 'rgba(0, 0, 0, 0.85)', backdropFilter: 'blur(4px)' }}
+   118→    >
+   119→      {/* Starfield background effect */}
+   120→      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+   121→        {Array.from({ length: 30 }).map((_, i) => (
+   122→          <div
+   123→            key={i}
+   124→            className="absolute w-0.5 h-0.5 bg-white rounded-full"
+   125→            style={{
+   126→              left: `${Math.random() * 100}%`,
+   127→              top: `${Math.random() * 100}%`,
+   128→              opacity: 0.3 + Math.random() * 0.5,
+   129→              animation: `twinkle ${1 + Math.random() * 2}s ease-in-out infinite`,
+   130→              animationDelay: `${Math.random() * 2}s`,
+   131→            }}
+   132→          />
+   133→        ))}
+   134→      </div>
+   135→
+   136→      <div className="relative text-center">
+   137→        {/* Laser phase */}
+   138→        <AnimatePresence>
+   139→          {phase === 'laser' && (
+   140→            <motion.div
+   141→              initial={{ scaleY: 0, opacity: 0 }}
+   142→              animate={{ scaleY: 1, opacity: 1 }}
+   143→              exit={{ scaleY: 0, opacity: 0 }}
+   144→              transition={{ duration: 0.3 }}
+   145→              className="absolute left-1/2 top-0 -translate-x-1/2 w-1 h-full origin-top"
+   146→              style={{
+   147→                background: 'linear-gradient(to bottom, transparent, #00f0ff, #00f0ff, transparent)',
+   148→                boxShadow: '0 0 20px #00f0ff, 0 0 40px #00f0ff66',
+   149→              }}
+   150→            />
+   151→          )}
+   152→        </AnimatePresence>
+   153→
+   154→        {/* Explosion phase */}
+   155→        <AnimatePresence>
+   156→          {phase === 'explosion' && (
+   157→            <motion.div
+   158→              initial={{ scale: 0, opacity: 1 }}
+   159→              animate={{ scale: 3, opacity: 0 }}
+   160→              exit={{ opacity: 0 }}
+   161→              transition={{ duration: 0.8, ease: 'easeOut' }}
+   162→              className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-20 h-20 rounded-full"
+   163→              style={{
+   164→                background: 'radial-gradient(circle, #ff6b35 0%, #ef4444 40%, transparent 70%)',
+   165→                boxShadow: '0 0 60px #ff6b35, 0 0 120px #ef444466',
+   166→              }}
+   167→            />
+   168→          )}
+   169→        </AnimatePresence>
+   170→
+   171→        {/* Floating damage numbers */}
+   172→        <AnimatePresence>
+   173→          {phase === 'result' && damageNums.map(n => (
+   174→            <motion.span
+   175→              key={n.id}
+   176→              initial={{ opacity: 1, y: 0, scale: 1 }}
+   177→              animate={{ opacity: 0, y: -60, scale: 0.5 }}
+   178→              exit={{ opacity: 0 }}
+   179→              transition={{ duration: 1.5, delay: n.id * 0.1 }}
+   180→              className="absolute font-mono font-bold text-sm"
+   181→              style={{
+   182→                left: `${n.x}%`,
+   183→                top: `${n.y}%`,
+   184→                color: n.isHeal ? '#22c55e' : '#ef4444',
+   185→                textShadow: `0 0 10px ${n.isHeal ? '#22c55e' : '#ef4444'}`,
+   186→              }}
+   187→            >
+   188→              {n.isHeal ? '+' : '-'}{n.val}
+   189→            </motion.span>
+   190→          ))}
+   191→        </AnimatePresence>
+   192→
+   193→        {/* Result display */}
+   194→        <AnimatePresence>
+   195→          {phase === 'result' && (
+   196→            <motion.div
+   197→              initial={{ scale: 0.5, opacity: 0, y: 20 }}
+   198→              animate={{ scale: 1, opacity: 1, y: 0 }}
+   199→              transition={{ type: 'spring', bounce: 0.4, duration: 0.5 }}
+   200→              className="relative z-10"
+   201→            >
+   202→              <div className="text-5xl mb-3">
+   203→                {result.victory ? '⚔️' : '💀'}
+   204→              </div>
+   205→              <h2
+   206→                className="text-xl font-bold font-mono mb-2"
+   207→                style={{
+   208→                  color: result.victory ? '#22c55e' : '#ef4444',
+   209→                  textShadow: `0 0 20px ${result.victory ? '#22c55e66' : '#ef444466'}`,
+   210→                }}
+   211→              >
+   212→                {result.victory ? 'ПОБЕДА!' : 'ПОРАЖЕНИЕ'}
+   213→              </h2>
+   214→              <p className="text-xs font-mono text-muted-foreground mb-1">
+   215→                {result.opponent} · Ур. {result.opponentLevel}
+   216→              </p>
+   217→              {result.victory && (
+   218→                <p className="text-xs font-mono text-green-400">
+   219→                  +{result.ratingChange} рейтинга
+   220→                  {result.shipsLost === 0 ? ' · Без потерь!' : ` · Потеряно кораблей: ${result.shipsLost}`}
+   221→                </p>
+   222→              )}
+   223→              {!result.victory && (
+   224→                <p className="text-xs font-mono text-red-400">
+   225→                  {result.ratingChange} рейтинга · Потеряно кораблей: {result.shipsLost}
+   226→                </p>
+   227→              )}
+   228→              {result.victory && Object.keys(result.resourcesGained).length > 0 && (
+   229→                <div className="mt-2 flex justify-center gap-2">
+   230→                  {(Object.entries(result.resourcesGained) as [string, number][]).map(([k, v]) => {
+   231→                    const cfg = RESOURCE_CONFIG[k as keyof typeof RESOURCE_CONFIG];
+   232→                    if (!cfg || !v) return null;
+   233→                    return (
+   234→                      <span key={k} className="text-[10px] font-mono flex items-center gap-0.5" style={{ color: cfg.color }}>
+   235→                        +{fmt(v)} {cfg.name}
+   236→                      </span>
+   237→                    );
+   238→                  })}
+   239→                </div>
+   240→              )}
+   241→            </motion.div>
+   242→          )}
+   243→        </AnimatePresence>
+   244→      </div>
+   245→    </motion.div>
+   246→  );
+   247→}
+   248→
+   249→// ── Ship card ─────────────────────────────────────────────
+   250→function ShipCard({
+   251→  ship,
+   252→  def,
+   253→  onBuildMore,
+   254→}: {
+   255→  ship: Ship;
+   256→  def: ShipDef;
+   257→  onBuildMore: () => void;
+   258→}) {
+   259→  const Icon = ICON_MAP[def.icon] || ShipIcon;
+   260→  const canAffordFn = useGameStore(s => s.canAfford);
+   261→  const canAfford = canAffordFn(def.cost);
+   262→  const researchedTechs = useGameStore(s => s.researchedTechs);
+   263→  const isUnlocked = !def.unlockedByTech || researchedTechs.includes(def.unlockedByTech);
+   264→
+   265→  if (!isUnlocked) return null;
+   266→
+   267→  return (
+   268→    <motion.div
+   269→      layout
+   270→      initial={{ opacity: 0, x: -10 }}
+   271→      animate={{ opacity: 1, x: 0 }}
+   272→      className="rounded-xl p-3 neon-border"
+   273→      style={{ background: 'rgba(15, 15, 35, 0.85)' }}
+   274→    >
+   275→      <div className="flex items-start gap-2.5">
+   276→        {/* Icon */}
+   277→        <div
+   278→          className="flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center"
+   279→          style={{ background: 'rgba(0, 240, 255, 0.1)', border: '1px solid rgba(0, 240, 255, 0.2)' }}
+   280→        >
+   281→          <Icon className="w-5 h-5 text-neon-cyan" />
+   282→        </div>
+   283→
+   284→        {/* Info */}
+   285→        <div className="flex-1 min-w-0">
+   286→          <div className="flex items-center justify-between mb-0.5">
+   287→            <div className="flex items-center gap-2">
+   288→              <span className="text-xs font-bold font-mono text-foreground truncate">{def.name}</span>
+   289→              <span className="text-[8px] font-mono text-muted-foreground px-1.5 py-0.5 rounded bg-white/5">
+   290→                {SHIP_CLASS_NAMES[def.class] || def.class}
+   291→              </span>
+   292→            </div>
+   293→            <Badge className="text-[9px] font-mono px-1.5" style={{ background: 'rgba(0, 240, 255, 0.15)', color: '#00f0ff', border: '1px solid rgba(0, 240, 255, 0.3)' }}>
+   294→              ×{ship.quantity}
+   295→            </Badge>
+   296→          </div>
+   297→
+   298→          {/* Stats */}
+   299→          <div className="flex items-center gap-3 mt-1.5 text-[10px] font-mono">
+   300→            <span className="flex items-center gap-0.5 text-red-400">
+   301→              <Swords className="w-3 h-3" /> {def.attack}
+   302→            </span>
+   303→            <span className="flex items-center gap-0.5 text-blue-400">
+   304→              <Shield className="w-3 h-3" /> {def.defense}
+   305→            </span>
+   306→            <span className="flex items-center gap-0.5 text-green-400">
+   307→              <Zap className="w-3 h-3" /> {def.speed}
+   308→            </span>
+   309→          </div>
+   310→
+   311→          {/* Build more */}
+   312→          <div className="mt-2 flex items-center justify-between">
+   313→            <CostRow cost={def.cost} />
+   314→            <Button
+   315→              onClick={onBuildMore}
+   316→              disabled={!canAfford}
+   317→              size="sm"
+   318→              className="holo-btn text-[10px] font-mono font-bold px-2.5 py-1 h-7 rounded-lg"
+   319→              style={{
+   320→                background: canAfford ? 'rgba(0, 240, 255, 0.12)' : 'rgba(50, 50, 70, 0.3)',
+   321→                color: canAfford ? '#00f0ff' : '#64748b',
+   322→                border: `1px solid ${canAfford ? 'rgba(0, 240, 255, 0.3)' : 'rgba(100,100,120,0.2)'}`,
+   323→              }}
+   324→            >
+   325→              <Plus className="w-3 h-3 mr-0.5" />
+   326→              Построить
+   327→            </Button>
+   328→          </div>
+   329→        </div>
+   330→      </div>
+   331→    </motion.div>
+   332→  );
+   333→}
+   334→
+   335→// ── Squadron card ─────────────────────────────────────────
+   336→function SquadronCard({
+   337→  squadron,
+   338→  onDelete,
+   339→}: {
+   340→  squadron: Squadron;
+   341→  onDelete: () => void;
+   342→}) {
+   343→  const ships = useGameStore(s => s.ships);
+   344→  const setTactic = useGameStore(s => s.setTactic);
+   345→  const getFleetPower = useGameStore(s => s.getFleetPower);
+   346→  const assignShipToSquadron = useGameStore(s => s.assignShipToSquadron);
+   347→  const setScreen = useGameStore(s => s.setScreen);
+   348→  const setActiveFleetTab = useFleetStore(s => s.setActiveFleetTab);
+   349→
+   350→  const power = getFleetPower(squadron.id);
+   351→  const tacticCfg = COMBAT_TACTIC_CONFIG[squadron.tactic];
+   352→  const assignedShips = squadron.shipIds
+   353→    .map(id => ships.find(s => s.id === id))
+   354→    .filter(Boolean) as Ship[];
+   355→
+   356→  // Unassigned ships available to add
+   357→  const unassignedShips = ships.filter(s => !s.assignedSquadron && s.quantity > 0);
+   358→
+   359→  const handleAttack = () => {
+   360→    setActiveFleetTab('combat');
+   361→  };
+   362→
+   363→  return (
+   364→    <motion.div
+   365→      layout
+   366→      initial={{ opacity: 0, y: 10 }}
+   367→      animate={{ opacity: 1, y: 0 }}
+   368→      className="rounded-xl p-3 neon-border-purple"
+   369→      style={{ background: 'rgba(15, 15, 35, 0.85)' }}
+   370→    >
+   371→      {/* Header */}
+   372→      <div className="flex items-center justify-between mb-2">
+   373→        <div className="flex items-center gap-2">
+   374→          <Users className="w-4 h-4 text-purple-400" />
+   375→          <span className="text-xs font-bold font-mono text-foreground">{squadron.name}</span>
+   376→        </div>
+   377→        <div className="flex items-center gap-1">
+   378→          <Badge className="text-[9px] font-mono px-1.5" style={{ background: 'rgba(168, 85, 247, 0.15)', color: '#a855f7', border: '1px solid rgba(168, 85, 247, 0.3)' }}>
+   379→            {assignedShips.length} корабл.
+   380→          </Badge>
+   381→        </div>
+   382→      </div>
+   383→
+   384→      {/* Tactic selector */}
+   385→      <div className="flex gap-1.5 mb-3">
+   386→        {(Object.entries(COMBAT_TACTIC_CONFIG) as [CombatTactic, typeof COMBAT_TACTIC_CONFIG.aggressive][]).map(([key, cfg]) => {
+   387→          const TIcon = TACTIC_ICON_MAP[key];
+   388→          const isActive = squadron.tactic === key;
+   389→          return (
+   390→            <button
+   391→              key={key}
+   392→              onClick={() => setTactic(squadron.id, key)}
+   393→              className="flex-1 flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-lg text-[9px] font-mono transition-all duration-200"
+   394→              style={{
+   395→                background: isActive ? 'rgba(168, 85, 247, 0.15)' : 'rgba(30, 30, 60, 0.3)',
+   396→                color: isActive ? '#a855f7' : '#64748b',
+   397→                border: `1px solid ${isActive ? 'rgba(168, 85, 247, 0.3)' : 'rgba(100,100,120,0.15)'}`,
+   398→              }}
+   399→            >
+   400→              <TIcon className="w-3.5 h-3.5" />
+   401→              {cfg.name}
+   402→            </button>
+   403→          );
+   404→        })}
+   405→      </div>
+   406→
+   407→      {/* Assigned ships */}
+   408→      {assignedShips.length > 0 ? (
+   409→        <div className="space-y-1 mb-3">
+   410→          {assignedShips.map(ship => {
+   411→            const def = SHIP_DEFS.find(d => d.id === ship.defId);
+   412→            if (!def) return null;
+   413→            const Icon = ICON_MAP[def.icon] || ShipIcon;
+   414→            return (
+   415→              <div key={ship.id} className="flex items-center justify-between px-2 py-1 rounded-md" style={{ background: 'rgba(168, 85, 247, 0.06)' }}>
+   416→                <div className="flex items-center gap-1.5">
+   417→                  <Icon className="w-3 h-3 text-purple-300" />
+   418→                  <span className="text-[10px] font-mono text-foreground">{def.name}</span>
+   419→                  <span className="text-[9px] font-mono text-purple-300">×{ship.quantity}</span>
+   420→                </div>
+   421→                <button
+   422→                  onClick={() => {
+   423→                    // Remove ship from squadron by assigning to null
+   424→                    // We use the store action - need to handle this differently
+   425→                    // For now, just visual
+   426→                  }}
+   427→                  className="w-5 h-5 rounded flex items-center justify-center hover:bg-white/10 transition-colors"
+   428→                >
+   429→                  <Minus className="w-3 h-3 text-muted-foreground" />
+   430→                </button>
+   431→              </div>
+   432→            );
+   433→          })}
+   434→        </div>
+   435→      ) : (
+   436→        <p className="text-[10px] font-mono text-muted-foreground text-center mb-3 py-2">
+   437→          Нет назначенных кораблей
+   438→        </p>
+   439→      )}
+   440→
+   441→      {/* Add ship dropdown */}
+   442→      {unassignedShips.length > 0 && (
+   443→        <div className="mb-3">
+   444→          <details className="group">
+   445→            <summary className="flex items-center gap-1 text-[10px] font-mono text-purple-400 cursor-pointer hover:text-purple-300 transition-colors">
+   446→              <Plus className="w-3 h-3" />
+   447→              Добавить корабль
+   448→              <span className="ml-1 opacity-50">({unassignedShips.length})</span>
+   449→            </summary>
+   450→            <div className="mt-1 space-y-0.5 max-h-28 overflow-y-auto">
+   451→              {unassignedShips.map(ship => {
+   452→                const def = SHIP_DEFS.find(d => d.id === ship.defId);
+   453→                if (!def) return null;
+   454→                const Icon = ICON_MAP[def.icon] || ShipIcon;
+   455→                return (
+   456→                  <button
+   457→                    key={ship.id}
+   458→                    onClick={() => assignShipToSquadron(ship.id, squadron.id)}
+   459→                    className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-white/5 transition-colors text-left"
+   460→                  >
+   461→                    <Icon className="w-3 h-3 text-neon-cyan" />
+   462→                    <span className="text-[10px] font-mono text-foreground">{def.name}</span>
+   463→                    <span className="text-[9px] font-mono text-muted-foreground">×{ship.quantity}</span>
+   464→                  </button>
+   465→                );
+   466→              })}
+   467→            </div>
+   468→          </details>
+   469→        </div>
+   470→      )}
+   471→
+   472→      {/* Power display */}
+   473→      <div className="flex items-center justify-between mb-2 px-1">
+   474→        <div className="flex items-center gap-3 text-[10px] font-mono">
+   475→          <span className="text-red-400">⚔ {power.attack}</span>
+   476→          <span className="text-blue-400">🛡 {power.defense}</span>
+   477→          <span className="text-green-400">⚡ {power.speed.toFixed(0)}</span>
+   478→        </div>
+   479→        <span className="text-[10px] font-mono text-muted-foreground">
+   480→          Сила: <span className="neon-text-purple font-bold">{power.attack + power.defense}</span>
+   481→        </span>
+   482→      </div>
+   483→
+   484→      {/* Action buttons */}
+   485→      <div className="flex gap-2">
+   486→        <Button
+   487→          onClick={handleAttack}
+   488→          disabled={squadron.shipIds.length === 0}
+   489→          className="flex-1 holo-btn text-[10px] font-mono font-bold py-2 rounded-lg"
+   490→          style={{
+   491→            background: squadron.shipIds.length > 0 ? 'rgba(239, 68, 68, 0.15)' : 'rgba(50, 50, 70, 0.3)',
+   492→            color: squadron.shipIds.length > 0 ? '#ef4444' : '#64748b',
+   493→            border: `1px solid ${squadron.shipIds.length > 0 ? 'rgba(239, 68, 68, 0.3)' : 'rgba(100,100,120,0.2)'}`,
+   494→          }}
+   495→        >
+   496→          <Swords className="w-3 h-3 mr-1" />
+   497→          Атаковать
+   498→        </Button>
+   499→        <Button
+   500→          onClick={onDelete}
+   501→          variant="ghost"
+   502→          size="sm"
+   503→          className="text-[10px] font-mono text-muted-foreground hover:text-red-400 px-2 h-7"
+   504→        >
+   505→          <Minus className="w-3 h-3" />
+   506→        </Button>
+   507→      </div>
+   508→    </motion.div>
+   509→  );
+   510→}
+   511→
+   512→// ── Combat target card ────────────────────────────────────
+   513→function TargetCard({
+   514→  node,
+   515→  onSelect,
+   516→  isSelected,
+   517→}: {
+   518→  node: MapNode;
+   519→  onSelect: () => void;
+   520→  isSelected: boolean;
+   521→}) {
+   522→  const typeColors: Record<string, string> = {
+   523→    pirate: '#ef4444',
+   524→    anomaly: '#a855f7',
+   525→    neutral: '#fbbf24',
+   526→  };
+   527→  const typeLabels: Record<string, string> = {
+   528→    pirate: 'Пираты',
+   529→    anomaly: 'Аномалия',
+   530→    neutral: 'Нейтрал',
+   531→  };
+   532→  const color = typeColors[node.type] || '#94a3b8';
+   533→
+   534→  return (
+   535→    <motion.button
+   536→      layout
+   537→      whileTap={{ scale: 0.98 }}
+   538→      onClick={onSelect}
+   539→      className="w-full text-left rounded-xl p-3 transition-all duration-200"
+   540→      style={{
+   541→        background: isSelected ? `${color}15` : 'rgba(15, 15, 35, 0.85)',
+   542→        border: `1px solid ${isSelected ? color + '50' : 'rgba(100, 100, 120, 0.2)'}`,
+   543→        boxShadow: isSelected ? `0 0 20px ${color}20` : 'none',
+   544→      }}
+   545→    >
+   546→      <div className="flex items-start justify-between mb-1.5">
+   547→        <div className="flex items-center gap-2">
+   548→          <div
+   549→            className="w-2 h-2 rounded-full"
+   550→            style={{ background: color, boxShadow: `0 0 6px ${color}` }}
+   551→          />
+   552→          <span className="text-xs font-bold font-mono text-foreground truncate max-w-[180px]">
+   553→            {node.name}
+   554→          </span>
+   555→        </div>
+   556→        <span className="text-[8px] font-mono px-1.5 py-0.5 rounded" style={{ background: `${color}20`, color, border: `1px solid ${color}30` }}>
+   557→          Ур.{node.level}
+   558→        </span>
+   559→      </div>
+   560→
+   561→      <div className="flex items-center justify-between">
+   562→        <DangerStars danger={node.danger} />
+   563→        <span className="text-[9px] font-mono" style={{ color }}>{typeLabels[node.type] || node.type}</span>
+   564→      </div>
+   565→
+   566→      {/* Rewards preview */}
+   567→      {Object.keys(node.resources).length > 0 && (
+   568→        <div className="flex flex-wrap gap-2 mt-2">
+   569→          {(Object.entries(node.resources) as [string, number][]).map(([k, v]) => {
+   570→            const cfg = RESOURCE_CONFIG[k as keyof typeof RESOURCE_CONFIG];
+   571→            if (!cfg || !v) return null;
+   572→            return (
+   573→              <span key={k} className="text-[9px] font-mono flex items-center gap-0.5" style={{ color: cfg.color }}>
+   574→                +{fmt(v)}
+   575→              </span>
+   576→            );
+   577→          })}
+   578→        </div>
+   579→      )}
+   580→    </motion.button>
+   581→  );
+   582→}
+   583→
+   584→// ── Combat log entry ──────────────────────────────────────
+   585→function CombatLogEntry({ entry }: { entry: CombatResult }) {
+   586→  const timeStr = new Date(entry.timestamp).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+   587→  return (
+   588→    <div className="flex items-start gap-2 px-2 py-1.5 rounded-lg" style={{ background: entry.victory ? 'rgba(34, 197, 94, 0.06)' : 'rgba(239, 68, 68, 0.06)' }}>
+   589→      <span className="text-sm">{entry.victory ? '⚔️' : '💀'}</span>
+   590→      <div className="flex-1 min-w-0">
+   591→        <div className="flex items-center justify-between">
+   592→          <span className={`text-[10px] font-mono font-bold ${entry.victory ? 'text-green-400' : 'text-red-400'}`}>
+   593→            {entry.victory ? 'Победа' : 'Поражение'}
+   594→          </span>
+   595→          <span className="text-[8px] font-mono text-muted-foreground">{timeStr}</span>
+   596→        </div>
+   597→        <p className="text-[9px] font-mono text-muted-foreground truncate">{entry.opponent}</p>
+   598→        <div className="flex items-center gap-2 text-[9px] font-mono mt-0.5">
+   599→          <span className={entry.ratingChange >= 0 ? 'text-green-400' : 'text-red-400'}>
+   600→            {entry.ratingChange >= 0 ? '+' : ''}{entry.ratingChange} рейт.
+   601→          </span>
+   602→          {entry.shipsLost > 0 && <span className="text-red-400">-{entry.shipsLost} кор.</span>}
+   603→        </div>
+   604→      </div>
+   605→    </div>
+   606→  );
+   607→}
+   608→
+   609→// ── PvP opponent generator ────────────────────────────────
+   610→function generatePvpOpponent(): { name: string; level: number; danger: number; resources: Partial<Record<string, number>> } {
+   611→  const names = ['Флот «Тёмный Клинок»', 'Станция «Нова-9»', 'Рейдеры Кербера', 'Орден Сигмы', 'Клан Змеиная Яма', 'Легион Стальных', 'Армада Проксимы'];
+   612→  const name = names[Math.floor(Math.random() * names.length)];
+   613→  const level = 1 + Math.floor(Math.random() * 7);
+   614→  const danger = Math.min(10, level + Math.floor(Math.random() * 3));
+   615→  const resources: Partial<Record<string, number>> = {
+   616→    energy: 200 + level * 100,
+   617→    minerals: 150 + level * 80,
+   618→  };
+   619→  if (level >= 3) resources.crystals = 10 + level * 5;
+   620→  if (level >= 5) resources.bioMatter = 100 + level * 30;
+   621→  return { name, level, danger, resources };
+   622→}
+   623→
+   624→// ── Local UI state store (Zustand) ────────────────────────
+   625→import { create } from 'zustand';
+   626→
+   627→interface FleetUIState {
+   628→  activeFleetTab: 'fleet' | 'combat';
+   629→  setActiveFleetTab: (tab: 'fleet' | 'combat') => void;
+   630→  combatMode: 'pve' | 'pvp';
+   631→  setCombatMode: (mode: 'pve' | 'pvp') => void;
+   632→  selectedTarget: string | null;
+   633→  setSelectedTarget: (id: string | null) => void;
+   634→  selectedSquadron: string | null;
+   635→  setSelectedSquadron: (id: string | null) => void;
+   636→  combatResult: CombatResult | null;
+   637→  setCombatResult: (r: CombatResult | null) => void;
+   638→  showCombatAnimation: boolean;
+   639→  setShowCombatAnimation: (v: boolean) => void;
+   640→  squadronDialogOpen: boolean;
+   641→  setSquadronDialogOpen: (v: boolean) => void;
+   642→}
+   643→
+   644→const useFleetStore = create<FleetUIState>((set) => ({
+   645→  activeFleetTab: 'fleet',
+   646→  setActiveFleetTab: (tab) => set({ activeFleetTab: tab }),
+   647→  combatMode: 'pve',
+   648→  setCombatMode: (mode) => set({ combatMode: mode, selectedTarget: null, selectedSquadron: null }),
+   649→  selectedTarget: null,
+   650→  setSelectedTarget: (id) => set({ selectedTarget: id }),
+   651→  selectedSquadron: null,
+   652→  setSelectedSquadron: (id) => set({ selectedSquadron: id }),
+   653→  combatResult: null,
+   654→  setCombatResult: (r) => set({ combatResult: r }),
+   655→  showCombatAnimation: false,
+   656→  setShowCombatAnimation: (v) => set({ showCombatAnimation: v }),
+   657→  squadronDialogOpen: false,
+   658→  setSquadronDialogOpen: (v) => set({ squadronDialogOpen: v }),
+   659→}));
+   660→
+   661→// ── Main component ────────────────────────────────────────
+   662→export default function FleetView() {
+   663→  const ships = useGameStore(s => s.ships);
+   664→  const squadrons = useGameStore(s => s.squadrons);
+   665→  const combatLog = useGameStore(s => s.combatLog);
+   666→  const pvpWins = useGameStore(s => s.pvpWins);
+   667→  const pvpLosses = useGameStore(s => s.pvpLosses);
+   668→  const mapNodes = useGameStore(s => s.mapNodes);
+   669→  const buildShip = useGameStore(s => s.buildShip);
+   670→  const createSquadron = useGameStore(s => s.createSquadron);
+   671→  const attackNode = useGameStore(s => s.attackNode);
+   672→  const setNotification = useGameStore(s => s.setNotification);
+   673→  const getFleetPower = useGameStore(s => s.getFleetPower);
+   674→
+   675→  const activeFleetTab = useFleetStore(s => s.activeFleetTab);
+   676→  const setActiveFleetTab = useFleetStore(s => s.setActiveFleetTab);
+   677→  const combatMode = useFleetStore(s => s.combatMode);
+   678→  const setCombatMode = useFleetStore(s => s.setCombatMode);
+   679→  const selectedTarget = useFleetStore(s => s.selectedTarget);
+   680→  const setSelectedTarget = useFleetStore(s => s.setSelectedTarget);
+   681→  const selectedSquadron = useFleetStore(s => s.selectedSquadron);
+   682→  const setSelectedSquadron = useFleetStore(s => s.setSelectedSquadron);
+   683→  const combatResult = useFleetStore(s => s.combatResult);
+   684→  const setCombatResult = useFleetStore(s => s.setCombatResult);
+   685→  const showCombatAnimation = useFleetStore(s => s.showCombatAnimation);
+   686→  const setShowCombatAnimation = useFleetStore(s => s.setShowCombatAnimation);
+   687→  const squadronDialogOpen = useFleetStore(s => s.squadronDialogOpen);
+   688→  const setSquadronDialogOpen = useFleetStore(s => s.setSquadronDialogOpen);
+   689→
+   690→  const [squadronName, setSquadronName] = useState('');
+   691→  // pvpOpponent derived via useMemo below (no separate state needed)
+   692→  const squadronCounter = useRef(1);
+   693→
+   694→  // Attackable nodes (discovered, non-player, non-empty)
+   695→  const attackableNodes = useMemo(
+   696→    () => mapNodes.filter(n => n.discovered && n.type !== 'station' && n.type !== 'empty' && n.type !== 'neutral'),
+   697→    [mapNodes],
+   698→  );
+   699→
+   700→  // Generate PvP opponent reactively (must be before handleAttack)
+   701→  const pvpOpponent = useMemo(() => {
+   702→    if (combatMode === 'pvp') return generatePvpOpponent();
+   703→    return null;
+   704→  }, [combatMode]);
+   705→
+   706→  // Auto-select PvP target when switching to PvP mode
+   707→  const effectiveTarget = combatMode === 'pvp' && pvpOpponent ? 'pvp_generated' : selectedTarget;
+   708→
+   709→  // Unlocked ship defs
+   710→  const researchedTechs = useGameStore(s => s.researchedTechs);
+   711→  const availableShipDefs = useMemo(
+   712→    () => SHIP_DEFS.filter(d => !d.unlockedByTech || researchedTechs.includes(d.unlockedByTech)),
+   713→    [researchedTechs],
+   714→  );
+   715→
+   716→  // Ships that have quantity > 0
+   717→  const ownedShips = useMemo(() => ships.filter(s => s.quantity > 0), [ships]);
+   718→
+   719→  // Handle creating squadron
+   720→  const handleCreateSquadron = useCallback(() => {
+   721→    const name = squadronName.trim() || `Эскадра ${squadronCounter.current}`;
+   722→    squadronCounter.current++;
+   723→    createSquadron(name);
+   724→    setSquadronName('');
+   725→    setSquadronDialogOpen(false);
+   726→    setNotification(`✅ Эскадра "${name}" создана!`);
+   727→  }, [squadronName, createSquadron, setNotification, setSquadronDialogOpen]);
+   728→
+   729→  // Handle build ship
+   730→  const handleBuildShip = useCallback((defId: string) => {
+   731→    const result = buildShip(defId);
+   732→    setNotification(result.message);
+   733→  }, [buildShip, setNotification]);
+   734→
+   735→  // Handle combat
+   736→  const handleAttack = useCallback(() => {
+   737→    if (!selectedSquadron || !selectedTarget) return;
+   738→
+   739→    if (combatMode === 'pve') {
+   740→      const result = attackNode(selectedTarget, selectedSquadron);
+   741→      if (result) {
+   742→        setCombatResult(result);
+   743→        setShowCombatAnimation(true);
+   744→        setNotification(result.victory
+   745→          ? `⚔️ Победа над ${result.opponent}! +${result.ratingChange} рейтинга`
+   746→          : `💀 Поражение у ${result.opponent}. ${result.ratingChange} рейтинга`
+   747→        );
+   748→      } else {
+   749→        setNotification('Не удалось атаковать!');
+   750→      }
+   751→    } else if (combatMode === 'pvp' && pvpOpponent) {
+   752→      // Simulate PvP combat using the same attack logic with a synthetic node
+   753→      const syntheticNode: MapNode = {
+   754→        id: `pvp_${Date.now()}`,
+   755→        name: pvpOpponent.name,
+   756→        type: 'pirate',
+   757→        x: 0, y: 0,
+   758→        owner: 'pvp',
+   759→        level: pvpOpponent.level,
+   760→        resources: pvpOpponent.resources,
+   761→        danger: pvpOpponent.danger,
+   762→        discovered: true,
+   763→      };
+   764→      // Temporarily add node, attack, then remove
+   765→      const store = useGameStore.getState();
+   766→      useGameStore.setState({ mapNodes: [...store.mapNodes, syntheticNode] });
+   767→      const result = attackNode(syntheticNode.id, selectedSquadron);
+   768→      // Remove the synthetic node
+   769→      useGameStore.setState({ mapNodes: useGameStore.getState().mapNodes.filter(n => n.id !== syntheticNode.id) });
+   770→      if (result) {
+   771→        setCombatResult(result);
+   772→        setShowCombatAnimation(true);
+   773→      }
+   774→    }
+   775→  }, [selectedSquadron, selectedTarget, combatMode, pvpOpponent, attackNode, setNotification, setCombatResult, setShowCombatAnimation]);
+   776→
+   777→  const handleCombatAnimationComplete = useCallback(() => {
+   778→    setShowCombatAnimation(false);
+   779→    setSelectedTarget(null);
+   780→    setSelectedSquadron(null);
+   781→  }, [setShowCombatAnimation, setSelectedTarget, setSelectedSquadron]);
+   782→
+   783→  return (
+   784→    <div className="holo-transition flex-1 min-h-0 flex flex-col pb-2">
+   785→      {/* Tab switcher */}
+   786→      <div className="px-3 pt-2 mb-3">
+   787→        <div className="flex gap-1 p-1 rounded-xl" style={{ background: 'rgba(15, 15, 35, 0.85)' }}>
+   788→          <button
+   789→            onClick={() => setActiveFleetTab('fleet')}
+   790→            className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-mono font-bold transition-all duration-200"
+   791→            style={{
+   792→              background: activeFleetTab === 'fleet' ? 'rgba(0, 240, 255, 0.12)' : 'transparent',
+   793→              color: activeFleetTab === 'fleet' ? '#00f0ff' : '#64748b',
+   794→              border: `1px solid ${activeFleetTab === 'fleet' ? 'rgba(0, 240, 255, 0.3)' : 'transparent'}`,
+   795→            }}
+   796→          >
+   797→            <Rocket className="w-3.5 h-3.5" />
+   798→            Флот
+   799→          </button>
+   800→          <button
+   801→            onClick={() => setActiveFleetTab('combat')}
+   802→            className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-mono font-bold transition-all duration-200 relative"
+   803→            style={{
+   804→              background: activeFleetTab === 'combat' ? 'rgba(239, 68, 68, 0.12)' : 'transparent',
+   805→              color: activeFleetTab === 'combat' ? '#ef4444' : '#64748b',
+   806→              border: `1px solid ${activeFleetTab === 'combat' ? 'rgba(239, 68, 68, 0.3)' : 'transparent'}`,
+   807→            }}
+   808→          >
+   809→            <Swords className="w-3.5 h-3.5" />
+   810→            Бой
+   811→            {combatLog.length > 0 && (
+   812→              <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-500 text-[8px] font-bold flex items-center justify-center text-white">
+   813→                {combatLog.length > 9 ? '9+' : combatLog.length}
+   814→              </span>
+   815→            )}
+   816→          </button>
+   817→        </div>
+   818→      </div>
+   819→
+   820→      <ScrollArea className="flex-1 px-3">
+   821→        <AnimatePresence mode="wait">
+   822→          {/* ═══════ FLEET TAB ═══════ */}
+   823→          {activeFleetTab === 'fleet' && (
+   824→            <motion.div
+   825→              key="fleet"
+   826→              initial={{ opacity: 0, x: -20 }}
+   827→              animate={{ opacity: 1, x: 0 }}
+   828→              exit={{ opacity: 0, x: 20 }}
+   829→              transition={{ duration: 0.2 }}
+   830→              className="space-y-4 pb-20"
+   831→            >
+   832→              {/* Fleet summary */}
+   833→              <div className="flex items-center justify-between">
+   834→                <div className="flex items-center gap-2">
+   835→                  <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Кораблей:</span>
+   836→                  <span className="text-sm font-bold font-mono neon-text-cyan">
+   837→                    {ownedShips.reduce((acc, s) => acc + s.quantity, 0)}
+   838→                  </span>
+   839→                </div>
+   840→                <div className="flex items-center gap-2">
+   841→                  <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Эскадр:</span>
+   842→                  <span className="text-sm font-bold font-mono neon-text-purple">{squadrons.length}</span>
+   843→                </div>
+   844→              </div>
+   845→
+   846→              {/* Ships section */}
+   847→              <section>
+   848→                <h3 className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
+   849→                  <ShipIcon className="w-3.5 h-3.5 text-neon-cyan" />
+   850→                  Ваши корабли
+   851→                </h3>
+   852→                {ownedShips.length > 0 ? (
+   853→                  <div className="space-y-2">
+   854→                    {ownedShips.map(ship => {
+   855→                      const def = SHIP_DEFS.find(d => d.id === ship.defId);
+   856→                      if (!def) return null;
+   857→                      return (
+   858→                        <ShipCard
+   859→                          key={ship.id}
+   860→                          ship={ship}
+   861→                          def={def}
+   862→                          onBuildMore={() => handleBuildShip(def.id)}
+   863→                        />
+   864→                      );
+   865→                    })}
+   866→                  </div>
+   867→                ) : (
+   868→                  <div className="rounded-xl p-6 text-center neon-border" style={{ background: 'rgba(15, 15, 35, 0.85)' }}>
+   869→                    <Rocket className="w-8 h-8 text-muted-foreground/30 mx-auto mb-2" />
+   870→                    <p className="text-xs font-mono text-muted-foreground">Нет построенных кораблей</p>
+   871→                    <p className="text-[10px] font-mono text-muted-foreground/60 mt-1">Постройте корабли на станции</p>
+   872→                  </div>
+   873→                )}
+   874→
+   875→                {/* Build new ship */}
+   876→                {availableShipDefs.filter(d => !ownedShips.find(s => s.defId === d.id)).length > 0 && (
+   877→                  <details className="mt-2 group">
+   878→                    <summary className="flex items-center gap-1.5 text-[10px] font-mono text-neon-cyan cursor-pointer hover:text-cyan-300 transition-colors py-1">
+   879→                      <Plus className="w-3 h-3" />
+   880→                      Построить новый тип
+   881→                    </summary>
+   882→                    <div className="mt-1 space-y-1.5">
+   883→                      {availableShipDefs
+   884→                        .filter(d => !ownedShips.find(s => s.defId === d.id))
+   885→                        .map(def => {
+   886→                          const Icon = ICON_MAP[def.icon] || ShipIcon;
+   887→                          const canAfford = useGameStore.getState().canAfford(def.cost);
+   888→                          return (
+   889→                            <button
+   890→                              key={def.id}
+   891→                              onClick={() => handleBuildShip(def.id)}
+   892→                              disabled={!canAfford}
+   893→                              className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg transition-all text-left"
+   894→                              style={{
+   895→                                background: canAfford ? 'rgba(0, 240, 255, 0.05)' : 'rgba(30, 30, 60, 0.3)',
+   896→                                border: `1px solid ${canAfford ? 'rgba(0, 240, 255, 0.15)' : 'rgba(100,100,120,0.15)'}`,
+   897→                                opacity: canAfford ? 1 : 0.5,
+   898→                              }}
+   899→                            >
+   900→                              <Icon className="w-4 h-4 text-neon-cyan flex-shrink-0" />
+   901→                              <div className="flex-1 min-w-0">
+   902→                                <span className="text-[10px] font-mono text-foreground">{def.name}</span>
+   903→                                <div className="flex gap-2 mt-0.5">
+   904→                                  <CostRow cost={def.cost} />
+   905→                                </div>
+   906→                              </div>
+   907→                            </button>
+   908→                          );
+   909→                        })}
+   910→                    </div>
+   911→                  </details>
+   912→                )}
+   913→              </section>
+   914→
+   915→              {/* Squadrons section */}
+   916→              <section>
+   917→                <div className="flex items-center justify-between mb-2">
+   918→                  <h3 className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+   919→                    <Users className="w-3.5 h-3.5 text-purple-400" />
+   920→                    Эскадры
+   921→                  </h3>
+   922→                  <Button
+   923→                    onClick={() => setSquadronDialogOpen(true)}
+   924→                    size="sm"
+   925→                    className="holo-btn text-[10px] font-mono font-bold px-2.5 py-1 h-6 rounded-lg"
+   926→                    style={{
+   927→                      background: 'rgba(168, 85, 247, 0.12)',
+   928→                      color: '#a855f7',
+   929→                      border: '1px solid rgba(168, 85, 247, 0.3)',
+   930→                    }}
+   931→                  >
+   932→                    <Plus className="w-3 h-3 mr-0.5" />
+   933→                    Создать
+   934→                  </Button>
+   935→                </div>
+   936→
+   937→                {squadrons.length > 0 ? (
+   938→                  <div className="space-y-2">
+   939→                    {squadrons.map(sq => (
+   940→                      <SquadronCard
+   941→                        key={sq.id}
+   942→                        squadron={sq}
+   943→                        onDelete={() => setNotification('Для удаления эскадры уберите все корабли')}
+   944→                      />
+   945→                    ))}
+   946→                  </div>
+   947→                ) : (
+   948→                  <div className="rounded-xl p-6 text-center neon-border-purple" style={{ background: 'rgba(15, 15, 35, 0.85)' }}>
+   949→                    <Users className="w-8 h-8 text-muted-foreground/30 mx-auto mb-2" />
+   950→                    <p className="text-xs font-mono text-muted-foreground">Нет эскадр</p>
+   951→                    <p className="text-[10px] font-mono text-muted-foreground/60 mt-1">Создайте эскадру для боя</p>
+   952→                  </div>
+   953→                )}
+   954→              </section>
+   955→            </motion.div>
+   956→          )}
+   957→
+   958→          {/* ═══════ COMBAT TAB ═══════ */}
+   959→          {activeFleetTab === 'combat' && (
+   960→            <motion.div
+   961→              key="combat"
+   962→              initial={{ opacity: 0, x: 20 }}
+   963→              animate={{ opacity: 1, x: 0 }}
+   964→              exit={{ opacity: 0, x: -20 }}
+   965→              transition={{ duration: 0.2 }}
+   966→              className="space-y-4 pb-20"
+   967→            >
+   968→              {/* PvP / PvE toggle */}
+   969→              <div className="flex gap-1 p-1 rounded-xl" style={{ background: 'rgba(15, 15, 35, 0.85)' }}>
+   970→                <button
+   971→                  onClick={() => setCombatMode('pve')}
+   972→                  className="flex-1 py-1.5 rounded-lg text-[10px] font-mono font-bold transition-all duration-200"
+   973→                  style={{
+   974→                    background: combatMode === 'pve' ? 'rgba(239, 68, 68, 0.12)' : 'transparent',
+   975→                    color: combatMode === 'pve' ? '#ef4444' : '#64748b',
+   976→                    border: `1px solid ${combatMode === 'pve' ? 'rgba(239, 68, 68, 0.3)' : 'transparent'}`,
+   977→                  }}
+   978→                >
+   979→                  ⚔️ PvE
+   980→                </button>
+   981→                <button
+   982→                  onClick={() => setCombatMode('pvp')}
+   983→                  className="flex-1 py-1.5 rounded-lg text-[10px] font-mono font-bold transition-all duration-200"
+   984→                  style={{
+   985→                    background: combatMode === 'pvp' ? 'rgba(168, 85, 247, 0.12)' : 'transparent',
+   986→                    color: combatMode === 'pvp' ? '#a855f7' : '#64748b',
+   987→                    border: `1px solid ${combatMode === 'pvp' ? 'rgba(168, 85, 247, 0.3)' : 'transparent'}`,
+   988→                  }}
+   989→                >
+   990→                  🏴 PvP
+   991→                </button>
+   992→              </div>
+   993→
+   994→              {/* PvP record */}
+   995→              <div className="flex items-center justify-center gap-4 text-[10px] font-mono">
+   996→                <span className="text-green-400">🏆 Побед: {pvpWins}</span>
+   997→                <span className="text-muted-foreground">·</span>
+   998→                <span className="text-red-400">💀 Поражений: {pvpLosses}</span>
+   999→              </div>
+  1000→
+  1001→              {/* Targets list */}
+  1002→              <section>
+  1003→                <h3 className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
+  1004→                  <Target className="w-3.5 h-3.5 text-red-400" />
+  1005→                  {combatMode === 'pve' ? 'Цели на карте' : 'Противник'}
+  1006→                </h3>
+  1007→
+  1008→                {combatMode === 'pve' ? (
+  1009→                  attackableNodes.length > 0 ? (
+  1010→                    <div className="space-y-2">
+  1011→                      {attackableNodes.map(node => (
+  1012→                        <TargetCard
+  1013→                          key={node.id}
+  1014→                          node={node}
+  1015→                          onSelect={() => setSelectedTarget(node.id === selectedTarget ? null : node.id)}
+  1016→                          isSelected={selectedTarget === node.id}
+  1017→                        />
+  1018→                      ))}
+  1019→                    </div>
+  1020→                  ) : (
+  1021→                    <div className="rounded-xl p-6 text-center neon-border" style={{ background: 'rgba(15, 15, 35, 0.85)' }}>
+  1022→                      <Target className="w-8 h-8 text-muted-foreground/30 mx-auto mb-2" />
+  1023→                      <p className="text-xs font-mono text-muted-foreground">Нет доступных целей</p>
+  1024→                      <p className="text-[10px] font-mono text-muted-foreground/60 mt-1">Исследуйте карту для обнаружения</p>
+  1025→                    </div>
+  1026→                  )
+  1027→                ) : (
+  1028→                  /* PvP opponent */
+  1029→                  pvpOpponent && (
+  1030→                    <TargetCard
+  1031→                      key="pvp"
+  1032→                      node={{
+  1033→                        id: 'pvp_generated',
+  1034→                        name: pvpOpponent.name,
+  1035→                        type: 'pirate',
+  1036→                        x: 0, y: 0,
+  1037→                        owner: 'pvp',
+  1038→                        level: pvpOpponent.level,
+  1039→                        resources: pvpOpponent.resources,
+  1040→                        danger: pvpOpponent.danger,
+  1041→                        discovered: true,
+  1042→                      }}
+  1043→                      onSelect={() => setSelectedTarget(selectedTarget === 'pvp_generated' ? null : 'pvp_generated')}
+  1044→                      isSelected={selectedTarget === 'pvp_generated'}
+  1045→                    />
+  1046→                  )
+  1047→                )}
+  1048→              </section>
+  1049→
+  1050→              {/* Squadron selector + attack */}
+  1051→              {selectedTarget && (
+  1052→                <motion.section
+  1053→                  initial={{ opacity: 0, y: 10 }}
+  1054→                  animate={{ opacity: 1, y: 0 }}
+  1055→                  className="rounded-xl p-3 neon-border-orange"
+  1056→                  style={{ background: 'rgba(15, 15, 35, 0.85)' }}
+  1057→                >
+  1058→                  <h3 className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider mb-2">
+  1059→                    Выберите эскадру
+  1060→                  </h3>
+  1061→
+  1062→                  {squadrons.length > 0 ? (
+  1063→                    <>
+  1064→                      <div className="space-y-1.5 mb-3">
+  1065→                        {squadrons.map(sq => {
+  1066→                          const power = getFleetPower(sq.id);
+  1067→                          const isSelected = selectedSquadron === sq.id;
+  1068→                          const hasShips = sq.shipIds.length > 0;
+  1069→                          return (
+  1070→                            <button
+  1071→                              key={sq.id}
+  1072→                              onClick={() => setSelectedSquadron(isSelected ? null : sq.id)}
+  1073→                              disabled={!hasShips}
+  1074→                              className="w-full flex items-center justify-between px-3 py-2 rounded-lg transition-all text-left"
+  1075→                              style={{
+  1076→                                background: isSelected ? 'rgba(255, 107, 53, 0.12)' : hasShips ? 'rgba(30, 30, 60, 0.3)' : 'rgba(30, 30, 60, 0.15)',
+  1077→                                border: `1px solid ${isSelected ? 'rgba(255, 107, 53, 0.3)' : 'rgba(100,100,120,0.15)'}`,
+  1078→                                opacity: hasShips ? 1 : 0.4,
+  1079→                              }}
+  1080→                            >
+  1081→                              <div className="flex items-center gap-2">
+  1082→                                <Users className="w-3.5 h-3.5 text-orange-400" />
+  1083→                                <span className="text-[10px] font-mono text-foreground">{sq.name}</span>
+  1084→                                <span className="text-[9px] font-mono text-muted-foreground">({sq.shipIds.length} кор.)</span>
+  1085→                              </div>
+  1086→                              <div className="flex items-center gap-2 text-[9px] font-mono">
+  1087→                                <span className="text-red-400">⚔{power.attack}</span>
+  1088→                                <span className="text-blue-400">🛡{power.defense}</span>
+  1089→                              </div>
+  1090→                            </button>
+  1091→                          );
+  1092→                        })}
+  1093→                      </div>
+  1094→
+  1095→                      <Button
+  1096→                        onClick={handleAttack}
+  1097→                        disabled={!selectedSquadron}
+  1098→                        className="w-full holo-btn text-xs font-mono font-bold py-3 rounded-xl"
+  1099→                        style={{
+  1100→                          background: selectedSquadron ? 'rgba(239, 68, 68, 0.2)' : 'rgba(50, 50, 70, 0.3)',
+  1101→                          color: selectedSquadron ? '#ef4444' : '#64748b',
+  1102→                          border: `1px solid ${selectedSquadron ? 'rgba(239, 68, 68, 0.4)' : 'rgba(100,100,120,0.2)'}`,
+  1103→                          boxShadow: selectedSquadron ? '0 0 30px rgba(239, 68, 68, 0.2)' : 'none',
+  1104→                        }}
+  1105→                      >
+  1106→                        <Swords className="w-4 h-4 mr-1.5" />
+  1107→                        В бой!
+  1108→                      </Button>
+  1109→                    </>
+  1110→                  ) : (
+  1111→                    <p className="text-[10px] font-mono text-muted-foreground text-center py-2">
+  1112→                      Создайте эскадру во вкладке «Флот»
+  1113→                    </p>
+  1114→                  )}
+  1115→                </motion.section>
+  1116→              )}
+  1117→
+  1118→              {/* Combat log */}
+  1119→              <section>
+  1120→                <h3 className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
+  1121→                  <ScrollText className="w-3.5 h-3.5 text-amber-400" />
+  1122→                  Журнал боя
+  1123→                </h3>
+  1124→                {combatLog.length > 0 ? (
+  1125→                  <div className="space-y-1.5 max-h-64 overflow-y-auto">
+  1126→                    {combatLog.slice(0, 10).map(entry => (
+  1127→                      <CombatLogEntry key={entry.id} entry={entry} />
+  1128→                    ))}
+  1129→                  </div>
+  1130→                ) : (
+  1131→                  <div className="rounded-xl p-4 text-center" style={{ background: 'rgba(15, 15, 35, 0.6)', border: '1px solid rgba(100,100,120,0.1)' }}>
+  1132→                    <p className="text-[10px] font-mono text-muted-foreground/60">Бои ещё не проводились</p>
+  1133→                  </div>
+  1134→                )}
+  1135→              </section>
+  1136→            </motion.div>
+  1137→          )}
+  1138→        </AnimatePresence>
+  1139→      </ScrollArea>
+  1140→
+  1141→      {/* Create squadron dialog */}
+  1142→      <Dialog open={squadronDialogOpen} onOpenChange={setSquadronDialogOpen}>
+  1143→        <DialogContent
+  1144→          className="max-w-sm mx-auto"
+  1145→          style={{
+  1146→            background: 'rgba(10, 10, 30, 0.97)',
+  1147→            border: '1px solid rgba(168, 85, 247, 0.3)',
+  1148→            boxShadow: '0 0 30px rgba(168, 85, 247, 0.15)',
+  1149→          }}
+  1150→        >
+  1151→          <DialogHeader>
+  1152→            <DialogTitle className="text-sm font-mono font-bold neon-text-purple">
+  1153→              Новая эскадра
+  1154→            </DialogTitle>
+  1155→          </DialogHeader>
+  1156→          <div className="mt-3">
+  1157→            <input
+  1158→              type="text"
+  1159→              value={squadronName}
+  1160→              onChange={e => setSquadronName(e.target.value)}
+  1161→              placeholder="Название эскадры..."
+  1162→              className="w-full px-3 py-2.5 rounded-lg text-xs font-mono bg-transparent text-foreground placeholder:text-muted-foreground/40 outline-none"
+  1163→              style={{
+  1164→                border: '1px solid rgba(168, 85, 247, 0.3)',
+  1165→                boxShadow: '0 0 10px rgba(168, 85, 247, 0.1), inset 0 0 10px rgba(168, 85, 247, 0.05)',
+  1166→              }}
+  1167→              maxLength={30}
+  1168→              onKeyDown={e => e.key === 'Enter' && handleCreateSquadron()}
+  1169→            />
+  1170→            <Button
+  1171→              onClick={handleCreateSquadron}
+  1172→              className="w-full mt-3 holo-btn text-xs font-mono font-bold py-2.5 rounded-lg"
+  1173→              style={{
+  1174→                background: 'rgba(168, 85, 247, 0.15)',
+  1175→                color: '#a855f7',
+  1176→                border: '1px solid rgba(168, 85, 247, 0.3)',
+  1177→              }}
+  1178→            >
+  1179→              <Plus className="w-4 h-4 mr-1.5" />
+  1180→              Создать эскадру
+  1181→            </Button>
+  1182→          </div>
+  1183→        </DialogContent>
+  1184→      </Dialog>
+  1185→
+  1186→      {/* Combat animation overlay */}
+  1187→      <AnimatePresence>
+  1188→        {showCombatAnimation && combatResult && (
+  1189→          <CombatAnimation
+  1190→            key={combatResult.id}
+  1191→            result={combatResult}
+  1192→            onComplete={handleCombatAnimationComplete}
+  1193→          />
+  1194→        )}
+  1195→      </AnimatePresence>
+  1196→    </div>
+  1197→  );
+  1198→}
+  1199→
+  1200→

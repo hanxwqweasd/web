@@ -43,7 +43,6 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Button } from '@/components/ui/button';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Sheet,
   SheetContent,
@@ -253,6 +252,8 @@ function ModuleCard({ mod, index }: { mod: StationModule; index: number }) {
   const selectModule = useGameStore(s => s.selectModule);
   const upgradeModule = useGameStore(s => s.upgradeModule);
   const speedUpBuild = useGameStore(s => s.speedUpBuild);
+  const getBuildTimeRemaining = useGameStore(s => s.getBuildTimeRemaining);
+  const crystals = useGameStore(s => s.resources.crystals);
   const collectResource = useGameStore(s => s.collectResource);
   const getModuleCost = useGameStore(s => s.getModuleCost);
   const canAfford = useGameStore(s => s.canAfford);
@@ -498,23 +499,31 @@ function ModuleCard({ mod, index }: { mod: StationModule; index: number }) {
           )}
 
           {/* Speed Up button */}
-          {mod.building && (
-            <motion.button
-              whileTap={{ scale: 0.92 }}
-              onClick={e => {
-                e.stopPropagation();
-                handleSpeedUp();
-              }}
-              className="holo-btn flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[10px] font-medium text-neon-purple"
-              style={{
-                background: 'rgba(168, 85, 247, 0.1)',
-                border: '1px solid rgba(168, 85, 247, 0.4)',
-              }}
-            >
-              <Timer className="w-3.5 h-3.5" />
-              Мгновенно
-            </motion.button>
-          )}
+          {mod.building && (() => {
+            const remaining = getBuildTimeRemaining(mod.id);
+            const cost = Math.max(1, Math.ceil(remaining / 60000));
+            const canAffordSpeed = crystals >= cost;
+            return (
+              <motion.button
+                whileTap={{ scale: 0.92 }}
+                onClick={e => {
+                  e.stopPropagation();
+                  handleSpeedUp();
+                }}
+                disabled={!canAffordSpeed}
+                className="holo-btn flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[10px] font-medium disabled:opacity-40"
+                style={{
+                  background: canAffordSpeed ? 'rgba(168, 85, 247, 0.1)' : 'rgba(100, 100, 130, 0.05)',
+                  border: `1px solid ${canAffordSpeed ? 'rgba(168, 85, 247, 0.4)' : 'rgba(100, 100, 130, 0.15)'}`,
+                  color: canAffordSpeed ? '#a855f7' : '#64748b',
+                }}
+              >
+                <Diamond className="w-3 h-3" />
+                <span>{cost}</span>
+                <Timer className="w-3 h-3" />
+              </motion.button>
+            );
+          })()}
 
           {/* Max level indicator */}
           {mod.level >= def.maxLevel && !mod.building && (
@@ -822,7 +831,7 @@ export default function StationView() {
   const buildingCount = modules.filter(m => m.building).length;
 
   return (
-    <section className="relative z-10 flex flex-col min-h-[calc(100vh-120px)] pb-2">
+    <section className="relative z-10 flex flex-col flex-1 min-h-0 pb-2">
       {/* Station Header */}
       <motion.header
         initial={{ opacity: 0, y: -10 }}
@@ -871,7 +880,7 @@ export default function StationView() {
       </motion.header>
 
       {/* Module Grid */}
-      <div className="px-3 flex-1">
+      <div className="px-3 flex-1 min-h-0 overflow-y-auto overscroll-contain mobile-scroll">
         <motion.div
           layout
           className="grid grid-cols-2 md:grid-cols-3 gap-2.5"

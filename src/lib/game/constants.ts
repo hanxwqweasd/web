@@ -232,15 +232,26 @@ export const DEFAULT_MAP_NODES: MapNode[] = [
   { id: 'home', name: 'Ваша станция', type: 'station', x: 50, y: 50, owner: 'player', level: 1, resources: {}, danger: 0, discovered: true },
   { id: 'asteroid_1', name: 'Астероидное поле Альфа', type: 'pirate', x: 30, y: 35, owner: null, level: 1, resources: { minerals: 500 }, danger: 2, discovered: true },
   { id: 'anomaly_1', name: 'Кристаллическая аномалия', type: 'anomaly', x: 70, y: 25, owner: null, level: 2, resources: { crystals: 50 }, danger: 3, discovered: true },
-  { id: 'station_1', name: 'Торговый пост «Нексус»', type: 'neutral', x: 65, y: 60, owner: null, level: 3, resources: {}, danger: 1, discovered: false },
-  { id: 'pirate_1', name: 'База пиратов «Красная Яма»', type: 'pirate', x: 20, y: 70, owner: 'pirates', level: 4, resources: { energy: 1000, minerals: 800 }, danger: 6, discovered: false },
+  { id: 'station_1', name: 'Торговый пост "Нексус"', type: 'neutral', x: 65, y: 60, owner: null, level: 3, resources: {}, danger: 1, discovered: false },
+  { id: 'pirate_1', name: 'База пиратов "Красная Яма"', type: 'pirate', x: 20, y: 70, owner: 'pirates', level: 4, resources: { energy: 1000, minerals: 800 }, danger: 6, discovered: false },
   { id: 'anomaly_2', name: 'Туманность Призрака', type: 'anomaly', x: 80, y: 45, owner: null, level: 3, resources: { crystals: 80 }, danger: 5, discovered: false },
-  { id: 'empty_1', name: 'Пустой сектор Γ-12', type: 'empty', x: 40, y: 20, owner: null, level: 0, resources: {}, danger: 0, discovered: false },
-  { id: 'pirate_2', name: 'Флот налётчиков', type: 'pirate', x: 15, y: 45, owner: 'pirates', level: 2, resources: { minerals: 600, bioMatter: 200 }, danger: 4, discovered: false },
-  { id: 'station_2', name: 'Исследовательская станция Ω', type: 'neutral', x: 85, y: 75, owner: null, level: 5, resources: {}, danger: 2, discovered: false },
-  { id: 'anomaly_3', name: 'Чёрная дыра «Жало»', type: 'anomaly', x: 45, y: 80, owner: null, level: 6, resources: { crystals: 200 }, danger: 9, discovered: false },
-  { id: 'pirate_3', name: 'Крепость «Железный Клык»', type: 'pirate', x: 75, y: 85, owner: 'pirates', level: 7, resources: { energy: 2000, minerals: 1500, crystals: 50 }, danger: 8, discovered: false },
+  { id: 'empty_1', name: 'Пустой сектор Г-12', type: 'empty', x: 40, y: 20, owner: null, level: 0, resources: {}, danger: 0, discovered: false },
+  { id: 'pirate_2', name: 'Флот налетчиков', type: 'pirate', x: 15, y: 45, owner: 'pirates', level: 2, resources: { minerals: 600, bioMatter: 200 }, danger: 4, discovered: false },
+  { id: 'station_2', name: 'Исследовательская станция Омега', type: 'neutral', x: 85, y: 75, owner: null, level: 5, resources: {}, danger: 2, discovered: false },
+  { id: 'anomaly_3', name: 'Черная дыра "Жало"', type: 'anomaly', x: 45, y: 80, owner: null, level: 6, resources: { crystals: 200 }, danger: 9, discovered: false },
+  { id: 'pirate_3', name: 'Крепость "Железный Клык"', type: 'pirate', x: 75, y: 85, owner: 'pirates', level: 7, resources: { energy: 2000, minerals: 1500, crystals: 50 }, danger: 8, discovered: false },
   { id: 'empty_2', name: 'Сектор релаксации', type: 'empty', x: 55, y: 15, owner: null, level: 0, resources: {}, danger: 0, discovered: false },
+  { id: 'station_3', name: 'Черный рынок "Тень"', type: 'neutral', x: 10, y: 20, owner: null, level: 4, resources: {}, danger: 3, discovered: false },
+  { id: 'pirate_4', name: 'Рейдеры Крайнего Пояса', type: 'pirate', x: 90, y: 15, owner: 'pirates', level: 3, resources: { minerals: 400, energy: 300 }, danger: 3, discovered: false },
+  { id: 'anomaly_4', name: 'Нейтринный источник', type: 'anomaly', x: 35, y: 90, owner: null, level: 4, resources: { crystals: 120, energy: 500 }, danger: 6, discovered: false },
+  { id: 'empty_3', name: 'Сектор дебризов Дельта', type: 'empty', x: 8, y: 55, owner: null, level: 0, resources: { minerals: 200 }, danger: 1, discovered: false },
+  { id: 'pirate_5', name: 'Синдикат "Глубина"', type: 'pirate', x: 92, y: 55, owner: 'pirates', level: 5, resources: { minerals: 1000, crystals: 30 }, danger: 5, discovered: false },
+  { id: 'anomaly_5', name: 'Тёмная материя Сигма', type: 'anomaly', x: 60, y: 92, owner: null, level: 5, resources: { crystals: 150, bioMatter: 300 }, danger: 7, discovered: false },
+  { id: 'station_4', name: 'Автодок "Восстановление"', type: 'neutral', x: 25, y: 10, owner: null, level: 2, resources: {}, danger: 1, discovered: false },
+  { id: 'pirate_6', name: 'Охотники за скарбом', type: 'pirate', x: 5, y: 85, owner: 'pirates', level: 6, resources: { energy: 1500, minerals: 2000, bioMatter: 500 }, danger: 7, discovered: false },
+  { id: 'empty_4', name: 'Заброшенная колония', type: 'empty', x: 50, y: 5, owner: null, level: 0, resources: { energy: 100, minerals: 100 }, danger: 0, discovered: false },
+  { id: 'anomaly_6', name: 'Квазар "Пробуждение"', type: 'anomaly', x: 88, y: 30, owner: null, level: 7, resources: { crystals: 300, energy: 1000 }, danger: 10, discovered: false },
+  { id: 'station_5', name: 'Пиратский бар "Ржавый Якорь"', type: 'neutral', x: 42, y: 55, owner: null, level: 3, resources: {}, danger: 2, discovered: false },
 ];
 
 // ============================================
@@ -248,10 +259,10 @@ export const DEFAULT_MAP_NODES: MapNode[] = [
 // ============================================
 export function generateDailyQuests(): DailyQuest[] {
   const quests: DailyQuest[] = [
-    { id: 'mine_minerals', description: 'Добудьте 1000 минералов', target: 1000, progress: 0, reward: { shards: 30, resources: { energy: 200 } }, completed: false, claimed: false },
-    { id: 'win_pvp', description: 'Одержите 3 победы в PvP', target: 3, progress: 0, reward: { shards: 50, resources: { crystals: 10 } }, completed: false, claimed: false },
-    { id: 'scan_sector', description: 'Выполните 2 сканирования', target: 2, progress: 0, reward: { shards: 20 }, completed: false, claimed: false },
-    { id: 'upgrade_module', description: 'Улучшите модуль до уровня 5', target: 5, progress: 0, reward: { shards: 40, resources: { minerals: 500 } }, completed: false, claimed: false },
+    { id: 'mine_minerals', description: 'Добудьте 1000 минералов', target: 1000, progress: 0, reward: { shards: 5, resources: { energy: 200 } }, completed: false, claimed: false },
+    { id: 'win_pvp', description: 'Одержите 3 победы в PvP', target: 3, progress: 0, reward: { shards: 8, resources: { crystals: 10 } }, completed: false, claimed: false },
+    { id: 'scan_sector', description: 'Выполните 2 сканирования', target: 2, progress: 0, reward: { shards: 3 }, completed: false, claimed: false },
+    { id: 'upgrade_module', description: 'Улучшите модуль до уровня 5', target: 5, progress: 0, reward: { shards: 6, resources: { minerals: 500 } }, completed: false, claimed: false },
   ];
   return quests;
 }

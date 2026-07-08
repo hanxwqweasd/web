@@ -10,7 +10,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Progress } from '@/components/ui/progress';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import {
@@ -817,7 +816,7 @@ export default function FleetView() {
         </div>
       </div>
 
-      <ScrollArea className="flex-1 px-3">
+      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain mobile-scroll px-3">
         <AnimatePresence mode="wait">
           {/* ═══════ FLEET TAB ═══════ */}
           {activeFleetTab === 'fleet' && (
@@ -1136,7 +1135,7 @@ export default function FleetView() {
             </motion.div>
           )}
         </AnimatePresence>
-      </ScrollArea>
+      </div>
 
       {/* Create squadron dialog */}
       <Dialog open={squadronDialogOpen} onOpenChange={setSquadronDialogOpen}>

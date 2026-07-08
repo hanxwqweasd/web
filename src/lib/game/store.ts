@@ -345,16 +345,27 @@ export const useGameStore = create<GameStore>()(
         const mod = state.modules.find(m => m.id === moduleId);
         if (!mod || !mod.building) return { success: false, message: 'Нет активной постройки' };
 
+        // Crystal cost: 1 crystal per 60 seconds remaining, minimum 1
+        const remaining = mod.buildEndTime ? Math.max(0, mod.buildEndTime - Date.now()) : 0;
+        const crystalCost = Math.max(1, Math.ceil(remaining / 60000));
+
+        if (state.resources.crystals < crystalCost) {
+          return { success: false, message: `Недостаточно кристаллов (нужно ${crystalCost})` };
+        }
+
         const updatedModules = state.modules.map(m =>
           m.id === moduleId
             ? { ...m, building: false, buildStartTime: null, buildEndTime: null }
             : m
         );
 
-        set({ modules: updatedModules, notification: '⚡ Постройка мгновенно завершена!' });
+        set({
+          modules: updatedModules,
+          resources: { ...state.resources, crystals: state.resources.crystals - crystalCost },
+        });
         get().recalculateRates();
 
-        return { success: true, message: 'Постройка завершена!' };
+        return { success: true, message: `Постройка завершена! -${crystalCost} кристаллов` };
       },
 
       getModuleCost,
