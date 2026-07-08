@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useGameStore } from '@/lib/game/store';
 import { FACTION_CONFIG } from '@/lib/game/constants';
@@ -333,7 +333,6 @@ export default function LeaderboardView() {
   const [myRank, setMyRank] = useState<MyRank | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const initializedRef = useRef(false);
 
   const faction = useGameStore(s => s.faction);
   const setScreen = useGameStore(s => s.setScreen);
@@ -387,11 +386,9 @@ export default function LeaderboardView() {
   }, [players]);
 
   useEffect(() => {
-    if (!initializedRef.current) {
-      initializedRef.current = true;
-      // Use microtask to avoid synchronous setState in effect
-      queueMicrotask(() => fetchLeaderboard('rating'));
-    }
+    // Delay fetch to ensure player registration has completed
+    const timer = setTimeout(() => fetchLeaderboard('rating'), 1000);
+    return () => clearTimeout(timer);
   }, [fetchLeaderboard]);
 
   useEffect(() => {

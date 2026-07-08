@@ -86,6 +86,11 @@ export default function MapView() {
   const [selectedNode, setSelectedNode] = useState<MapNode | null>(null);
   const [selectedSquadron, setSelectedSquadron] = useState<string>('');
 
+  // Travel animation state
+  const [traveling, setTraveling] = useState(false);
+  const [travelTarget, setTravelTarget] = useState<{x: number; y: number} | null>(null);
+  const pendingActionRef = useRef<(() => void) | null>(null);
+
   // Connections between discovered nodes
   const connections = useMemo(() => {
     const discovered = mapNodes.filter(n => n.discovered);
@@ -241,39 +246,51 @@ export default function MapView() {
   // Node click handler — uses ref, not state
   const handleNodeClick = useCallback(
     (node: MapNode) => {
-      if (hasMoved.current) return;
+      if (hasMoved.current || traveling) return;
       setSelectedNode(node);
     },
-    []
+    [traveling]
   );
 
   // Discover action
   const handleDiscover = useCallback(() => {
-    if (!selectedNode) return;
-    discoverNode(selectedNode.id);
-    toast.success(`Сектор «${selectedNode.name}» разведан!`);
-    setSelectedNode(prev => (prev ? { ...prev, discovered: true } : null));
-  }, [selectedNode, discoverNode]);
+    if (!selectedNode || traveling) return;
+    const nodeId = selectedNode.id;
+    const nodeName = selectedNode.name;
+    setTraveling(true);
+    setTravelTarget({ x: selectedNode.x, y: selectedNode.y });
+    pendingActionRef.current = () => {
+      discoverNode(nodeId);
+      toast.success(`Сектор «${nodeName}» разведан!`);
+    };
+    setSelectedNode(null);
+  }, [selectedNode, traveling, discoverNode]);
 
   // Attack action
   const handleAttack = useCallback(() => {
-    if (!selectedNode || !selectedSquadron) return;
+    if (!selectedNode || !selectedSquadron || traveling) return;
     if (selectedNode.type !== 'pirate' && selectedNode.type !== 'anomaly') {
       toast.error('Можно атаковать только пиратов и аномалии');
       return;
     }
-    const result = attackNode(selectedNode.id, selectedSquadron);
-    if (result) {
-      if (result.victory) {
-        toast.success(`Победа! +${result.ratingChange} рейтинга`);
+    const nodeId = selectedNode.id;
+    const squadronId = selectedSquadron;
+    setTraveling(true);
+    setTravelTarget({ x: selectedNode.x, y: selectedNode.y });
+    pendingActionRef.current = () => {
+      const result = attackNode(nodeId, squadronId);
+      if (result) {
+        if (result.victory) {
+          toast.success(`Победа! +${result.ratingChange} рейтинга`);
+        } else {
+          toast.error(`Поражение. ${result.ratingChange} рейтинга`);
+        }
       } else {
-        toast.error(`Поражение. ${result.ratingChange} рейтинга`);
+        toast.error('Не удалось начать атаку — выберите эскадру с кораблями');
       }
-    } else {
-      toast.error('Не удалось начать атаку — выберите эскадру с кораблями');
-    }
+    };
     setSelectedNode(null);
-  }, [selectedNode, selectedSquadron, attackNode]);
+  }, [selectedNode, selectedSquadron, traveling, attackNode]);
 
   // Map click (deselect)
   const handleMapClick = useCallback(() => {
@@ -487,6 +504,66 @@ export default function MapView() {
               </div>
             );
           })}
+
+          {/* Traveling ship animation */}
+          <AnimatePresence>
+            {traveling && travelTarget && (
+              <motion.div
+                key="traveling-ship"
+                initial={{ left: '50%', top: '50%', opacity: 0 }}
+                animate={{ left: `${travelTarget.x}%`, top: `${travelTarget.y}%`, opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 1.5, ease: 'easeInOut' }}
+                onAnimationComplete={() => {
+                  if (pendingActionRef.current) {
+                    pendingActionRef.current();
+                    pendingActionRef.current = null;
+                  }
+                  setTraveling(false);
+                  setTravelTarget(null);
+                }}
+                className="absolute pointer-events-none"
+                style={{ zIndex: 50 }}
+              >
+                <div className="relative" style={{ transform: 'translate(-50%, -50%)' }}>
+                  {/* Outer glow pulse */}
+                  <div
+                    className="absolute rounded-full"
+                    style={{
+                      width: 40,
+                      height: 40,
+                      left: -15,
+                      top: -15,
+                      background: 'radial-gradient(circle, rgba(0, 240, 255, 0.35) 0%, rgba(0, 240, 255, 0.1) 40%, transparent 70%)',
+                      animation: 'pulse-glow 0.6s ease-in-out infinite alternate',
+                    }}
+                  />
+                  {/* Trail glow */}
+                  <div
+                    className="absolute rounded-full"
+                    style={{
+                      width: 20,
+                      height: 20,
+                      left: -5,
+                      top: -5,
+                      background: 'radial-gradient(circle, rgba(0, 240, 255, 0.2) 0%, transparent 70%)',
+                      filter: 'blur(3px)',
+                    }}
+                  />
+                  {/* Core dot */}
+                  <div
+                    style={{
+                      width: 10,
+                      height: 10,
+                      borderRadius: '50%',
+                      background: '#00f0ff',
+                      boxShadow: '0 0 6px #00f0ff, 0 0 14px rgba(0, 240, 255, 0.8), 0 0 28px rgba(0, 240, 255, 0.4), 0 0 48px rgba(0, 240, 255, 0.2)',
+                    }}
+                  />
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
 
         {/* Legend */}
@@ -619,6 +696,7 @@ export default function MapView() {
                       size="sm"
                       className="flex-1 holo-btn neon-border text-neon-cyan hover:text-neon-cyan"
                       style={{ background: 'rgba(0, 240, 255, 0.1)' }}
+                      disabled={traveling}
                       onClick={handleDiscover}
                     >
                       <Eye className="w-4 h-4 mr-1" />
@@ -654,7 +732,7 @@ export default function MapView() {
                               border: '1px solid rgba(239, 68, 68, 0.4)',
                               color: '#ef4444',
                             }}
-                            disabled={!selectedSquadron}
+                            disabled={!selectedSquadron || traveling}
                             onClick={handleAttack}
                           >
                             <Swords className="w-4 h-4 mr-1" />

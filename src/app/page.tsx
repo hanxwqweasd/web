@@ -244,10 +244,12 @@ export default function GamePage() {
               body: JSON.stringify({ telegramUserId: user.id, referralCode: startParam }),
             }).then(r => r.json()).then(refData => {
               if (refData.success) {
-                setNotification(`🎁 Реферал: ${refData.message}`);
+                setNotification(`Реферал: ${refData.message}`);
               }
             }).catch(() => {});
           }
+          // Trigger immediate save so player appears in leaderboard
+          setTimeout(() => tick(), 500);
         }
       }).catch(() => {});
     }

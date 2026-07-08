@@ -1,10 +1,11 @@
 'use client';
 
+import { useEffect, useRef } from 'react';
 import { useGameStore } from '@/lib/game/store';
 import type { GameScreen } from '@/lib/game/types';
 import {
   Satellite, FlaskConical, Rocket, Map,
-  ShoppingBag, Trophy, User, ChevronLeft, ScrollText
+  ShoppingBag, Trophy, User, ChevronLeft, ScrollText, X
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -27,6 +28,20 @@ export default function NavigationBar() {
   const notification = useGameStore(s => s.notification);
   const dismissNotification = useGameStore(s => s.dismissNotification);
 
+  // Auto-dismiss notification after 4 seconds
+  const dismissTimer = useRef<ReturnType<typeof setTimeout>>();
+  useEffect(() => {
+    if (notification) {
+      if (dismissTimer.current) clearTimeout(dismissTimer.current);
+      dismissTimer.current = setTimeout(() => {
+        dismissNotification();
+      }, 4000);
+    }
+    return () => {
+      if (dismissTimer.current) clearTimeout(dismissTimer.current);
+    };
+  }, [notification, dismissNotification]);
+
   const isInRoom = currentScreen === 'room' && currentRoom;
 
   return (
@@ -41,11 +56,17 @@ export default function NavigationBar() {
             className="fixed top-0 left-0 right-0 z-50 flex justify-center px-3 pt-2 safe-top"
           >
             <div
-              className="slide-in-down px-4 py-2.5 rounded-xl text-sm font-medium text-center max-w-sm neon-border"
+              className="slide-in-down flex items-center gap-2.5 px-4 py-2.5 rounded-xl text-sm font-medium text-center max-w-sm neon-border"
               style={{ background: 'rgba(10, 10, 30, 0.95)', backdropFilter: 'blur(10px)' }}
-              onClick={dismissNotification}
             >
-              {notification}
+              <span className="flex-1 text-left text-xs">{notification}</span>
+              <button
+                onClick={(e) => { e.stopPropagation(); dismissNotification(); }}
+                className="flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center"
+                style={{ background: 'rgba(255,255,255,0.1)' }}
+              >
+                <X className="w-3 h-3 text-muted-foreground" />
+              </button>
             </div>
           </motion.div>
         )}

@@ -7,7 +7,7 @@
 
 const TOKEN = process.env.BOT_TOKEN;
 const GAME_URL = process.env.GAME_URL || "https://t.me/StarDominionBot/StarDominion";
-const API_URL = process.env.API_URL || "";  // REQUIRED for payment processing
+const API_URL = (process.env.API_URL || "").replace(/\/+$/, "");  // REQUIRED for payment processing — trailing slash trimmed
 const ADMIN_ID = parseInt(process.env.ADMIN_ID || "0", 10);
 
 if (!TOKEN) {
