@@ -198,6 +198,15 @@ export default function GamePage() {
   useEffect(() => {
     initTelegramWebApp();
 
+    // Check URL params for admin access (works outside Telegram too)
+    if (typeof window !== 'undefined') {
+      const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.get('admin') === 'true') {
+        console.log('[Admin] URL param ?admin=true detected');
+        setTimeout(() => useGameStore.getState().setScreen('admin'), 300);
+      }
+    }
+
     const user = getTelegramUser();
     if (user) {
       console.log(`[Telegram] User: ${user.first_name} (@${user.username ?? 'N/A'}), ID: ${user.id}`);

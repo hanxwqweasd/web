@@ -217,12 +217,14 @@ function Top3Podium({
 // ============================================
 function RankingsList({
   players,
+  startFromIndex,
   playerIsMe,
 }: {
   players: LeaderboardPlayer[];
+  startFromIndex: number;
   playerIsMe: (id: number | undefined) => boolean;
 }) {
-  const restPlayers = players.slice(3);
+  const restPlayers = players.slice(startFromIndex);
 
   if (restPlayers.length === 0) return null;
 
@@ -479,17 +481,8 @@ export default function LeaderboardView() {
               <Top3Podium players={players} onChallenge={handleChallenge} playerIsMe={playerIsMe} />
             )}
 
-            {/* Separator */}
-            <div className="flex items-center gap-2 mb-2">
-              <div className="flex-1 h-px bg-gradient-to-r from-transparent via-slate-700 to-transparent" />
-              <span className="text-[10px] text-slate-600 font-mono">
-                Топ {Math.min(players.length, 50)}
-              </span>
-              <div className="flex-1 h-px bg-gradient-to-r from-transparent via-slate-700 to-transparent" />
-            </div>
-
-            {/* Full Rankings */}
-            <RankingsList players={players} playerIsMe={playerIsMe} />
+            {/* Full Rankings — show all players starting after top 3 (or all if <3) */}
+            <RankingsList players={players} startFromIndex={players.length >= 3 ? 3 : 0} playerIsMe={playerIsMe} />
           </>
         )}
       </div>
