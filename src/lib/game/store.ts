@@ -58,7 +58,7 @@ const initialState: GameState = {
   mapNodes: DEFAULT_MAP_NODES.map(n => ({ ...n })),
   achievements: [],
   dailyQuests: initialQuests,
-  starShards: 50,
+  starShards: 0,
   totalMineralsMined: 0,
   totalBattlesWon: 0,
   totalEnemiesDefeated: 0,
