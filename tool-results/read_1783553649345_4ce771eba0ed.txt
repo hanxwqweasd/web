@@ -1,0 +1,797 @@
+     1→'use client';
+     2→
+     3→import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+     4→import { motion, AnimatePresence } from 'framer-motion';
+     5→import { useGameStore } from '@/lib/game/store';
+     6→import { RESOURCE_CONFIG } from '@/lib/game/constants';
+     7→import type { MapNode } from '@/lib/game/types';
+     8→import { Button } from '@/components/ui/button';
+     9→import { Badge } from '@/components/ui/badge';
+    10→import {
+    11→  Crosshair,
+    12→  Eye,
+    13→  Swords,
+    14→  MapPin,
+    15→  Shield,
+    16→  Zap,
+    17→  Star,
+    18→  Skull,
+    19→  Sparkles,
+    20→  Anchor,
+    21→  CircleDot,
+    22→  Target,
+    23→  X,
+    24→} from 'lucide-react';
+    25→import { toast } from 'sonner';
+    26→
+    27→// Icon map for node types
+    28→const NODE_ICONS: Record<string, React.ComponentType<{ className?: string; style?: React.CSSProperties }>> = {
+    29→  station: Anchor,
+    30→  anomaly: Sparkles,
+    31→  pirate: Skull,
+    32→  neutral: Star,
+    33→  empty: CircleDot,
+    34→};
+    35→
+    36→const NODE_COLORS: Record<string, string> = {
+    37→  station: '#00f0ff',
+    38→  anomaly: '#a855f7',
+    39→  pirate: '#ef4444',
+    40→  neutral: '#fbbf24',
+    41→  empty: '#4a5568',
+    42→};
+    43→
+    44→const TYPE_LABELS: Record<string, string> = {
+    45→  station: 'Станция',
+    46→  anomaly: 'Аномалия',
+    47→  pirate: 'Пиратская база',
+    48→  neutral: 'Нейтральная станция',
+    49→  empty: 'Пустой сектор',
+    50→};
+    51→
+    52→// Connection threshold — nodes within this distance get connected
+    53→const CONNECTION_DIST = 35;
+    54→// Drag threshold — if pointer moved less than this, it's a click
+    55→const DRAG_THRESHOLD = 12;
+    56→
+    57→function getNodeColor(node: MapNode): string {
+    58→  if (!node.discovered) return 'rgba(100, 100, 130, 0.25)';
+    59→  return NODE_COLORS[node.type] || '#4a5568';
+    60→}
+    61→
+    62→function getGlowColor(node: MapNode): string {
+    63→  if (!node.discovered) return 'transparent';
+    64→  return NODE_COLORS[node.type] || '#4a5568';
+    65→}
+    66→
+    67→export default function MapView() {
+    68→  const mapNodes = useGameStore(s => s.mapNodes);
+    69→  const squadrons = useGameStore(s => s.squadrons);
+    70→  const discoverNode = useGameStore(s => s.discoverNode);
+    71→  const attackNode = useGameStore(s => s.attackNode);
+    72→  const getFleetPower = useGameStore(s => s.getFleetPower);
+    73→
+    74→  const containerRef = useRef<HTMLDivElement>(null);
+    75→  const mapRef = useRef<HTMLDivElement>(null);
+    76→
+    77→  // Pan & zoom state
+    78→  const [pan, setPan] = useState({ x: 0, y: 0 });
+    79→  const [zoom, setZoom] = useState(1);
+    80→  const dragStart = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
+    81→  const hasMoved = useRef(false); // ref — synchronous, not batched
+    82→  const lastTouchDist = useRef<number | null>(null);
+    83→  const lastTouchCenter = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+    84→
+    85→  // Selected node
+    86→  const [selectedNode, setSelectedNode] = useState<MapNode | null>(null);
+    87→  const [selectedSquadron, setSelectedSquadron] = useState<string>('');
+    88→
+    89→  // Travel animation state
+    90→  const [traveling, setTraveling] = useState(false);
+    91→  const [travelTarget, setTravelTarget] = useState<{x: number; y: number} | null>(null);
+    92→  const pendingActionRef = useRef<(() => void) | null>(null);
+    93→
+    94→  // Connections between discovered nodes
+    95→  const connections = useMemo(() => {
+    96→    const discovered = mapNodes.filter(n => n.discovered);
+    97→    const lines: [MapNode, MapNode][] = [];
+    98→    for (let i = 0; i < discovered.length; i++) {
+    99→      for (let j = i + 1; j < discovered.length; j++) {
+   100→        const dx = discovered[i].x - discovered[j].x;
+   101→        const dy = discovered[i].y - discovered[j].y;
+   102→        const dist = Math.sqrt(dx * dx + dy * dy);
+   103→        if (dist < CONNECTION_DIST) {
+   104→          lines.push([discovered[i], discovered[j]]);
+   105→        }
+   106→      }
+   107→    }
+   108→    return lines;
+   109→  }, [mapNodes]);
+   110→
+   111→  // Center on home station
+   112→  const centerOnStation = useCallback(() => {
+   113→    const home = mapNodes.find(n => n.id === 'home');
+   114→    if (!home || !containerRef.current) return;
+   115→    const rect = containerRef.current.getBoundingClientRect();
+   116→    const centerX = rect.width / 2;
+   117→    const centerY = rect.height / 2;
+   118→    setPan({
+   119→      x: centerX - (home.x / 100) * rect.width * zoom,
+   120→      y: centerY - (home.y / 100) * rect.height * zoom,
+   121→    });
+   122→  }, [mapNodes, zoom]);
+   123→
+   124→  // Initialize center on mount
+   125→  useEffect(() => {
+   126→    const timer = setTimeout(centerOnStation, 100);
+   127→    return () => clearTimeout(timer);
+   128→  }, [centerOnStation]);
+   129→
+   130→  // Mouse/touch handlers for pan — using refs for drag detection
+   131→  // NOTE: No setPointerCapture! It steals click events from child nodes.
+   132→  // Pointer events bubble from nodes to this container, so pan still works.
+   133→  const handlePointerDown = useCallback((e: React.PointerEvent) => {
+   134→    hasMoved.current = false;
+   135→    dragStart.current = {
+   136→      x: e.clientX,
+   137→      y: e.clientY,
+   138→      panX: pan.x,
+   139→      panY: pan.y,
+   140→    };
+   141→  }, [pan.x, pan.y]);
+   142→
+   143→  const handlePointerMove = useCallback(
+   144→    (e: React.PointerEvent) => {
+   145→      const dx = e.clientX - dragStart.current.x;
+   146→      const dy = e.clientY - dragStart.current.y;
+   147→      if (Math.abs(dx) > DRAG_THRESHOLD || Math.abs(dy) > DRAG_THRESHOLD) {
+   148→        hasMoved.current = true;
+   149→      }
+   150→      setPan({
+   151→        x: dragStart.current.panX + dx,
+   152→        y: dragStart.current.panY + dy,
+   153→      });
+   154→    },
+   155→    []
+   156→  );
+   157→
+   158→  const handlePointerUp = useCallback(() => {
+   159→    // Small delay so click can read hasMoved before any cleanup
+   160→  }, []);
+   161→
+   162→  // Pinch-to-zoom
+   163→  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+   164→    if (e.touches.length === 2) {
+   165→      const dx = e.touches[0].clientX - e.touches[1].clientX;
+   166→      const dy = e.touches[0].clientY - e.touches[1].clientY;
+   167→      lastTouchDist.current = Math.sqrt(dx * dx + dy * dy);
+   168→      lastTouchCenter.current = {
+   169→        x: (e.touches[0].clientX + e.touches[1].clientX) / 2,
+   170→        y: (e.touches[0].clientY + e.touches[1].clientY) / 2,
+   171→      };
+   172→    }
+   173→  }, []);
+   174→
+   175→  const handleTouchMove = useCallback(
+   176→    (e: React.TouchEvent) => {
+   177→      if (e.touches.length === 2 && lastTouchDist.current) {
+   178→        const dx = e.touches[0].clientX - e.touches[1].clientX;
+   179→        const dy = e.touches[0].clientY - e.touches[1].clientY;
+   180→        const dist = Math.sqrt(dx * dx + dy * dy);
+   181→        const scale = dist / lastTouchDist.current;
+   182→        const newZoom = Math.min(3, Math.max(0.5, zoom * scale));
+   183→
+   184→        const cx = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+   185→        const cy = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+   186→
+   187→        setPan(prev => ({
+   188→          x: cx - (cx - prev.x) * (newZoom / zoom),
+   189→          y: cy - (cy - prev.y) * (newZoom / zoom),
+   190→        }));
+   191→        setZoom(newZoom);
+   192→        lastTouchDist.current = dist;
+   193→      }
+   194→    },
+   195→    [zoom]
+   196→  );
+   197→
+   198→  // Mouse wheel zoom (needs non-passive to preventDefault)
+   199→  const wheelRef = useRef<React.WheelEvent | null>(null);
+   200→  const handleWheel = useCallback(
+   201→    (e: React.WheelEvent) => {
+   202→      e.preventDefault();
+   203→      const scale = e.deltaY < 0 ? 1.1 : 0.9;
+   204→      const newZoom = Math.min(3, Math.max(0.5, zoom * scale));
+   205→
+   206→      if (containerRef.current) {
+   207→        const rect = containerRef.current.getBoundingClientRect();
+   208→        const mx = e.clientX - rect.left;
+   209→        const my = e.clientY - rect.top;
+   210→
+   211→        setPan(prev => ({
+   212→          x: mx - (mx - prev.x) * (newZoom / zoom),
+   213→          y: my - (my - prev.y) * (newZoom / zoom),
+   214→        }));
+   215→      }
+   216→      setZoom(newZoom);
+   217→    },
+   218→    [zoom]
+   219→  );
+   220→
+   221→  // Attach non-passive wheel listener
+   222→  useEffect(() => {
+   223→    const el = containerRef.current;
+   224→    if (!el) return;
+   225→    const handler = (e: WheelEvent) => {
+   226→      e.preventDefault();
+   227→      const scale = e.deltaY < 0 ? 1.1 : 0.9;
+   228→      setZoom(prev => {
+   229→        const newZoom = Math.min(3, Math.max(0.5, prev * scale));
+   230→        if (el) {
+   231→          const rect = el.getBoundingClientRect();
+   232→          const mx = e.clientX - rect.left;
+   233→          const my = e.clientY - rect.top;
+   234→          setPan(p => ({
+   235→            x: mx - (mx - p.x) * (newZoom / prev),
+   236→            y: my - (my - p.y) * (newZoom / prev),
+   237→          }));
+   238→        }
+   239→        return newZoom;
+   240→      });
+   241→    };
+   242→    el.addEventListener('wheel', handler, { passive: false });
+   243→    return () => el.removeEventListener('wheel', handler);
+   244→  }, []);
+   245→
+   246→  // Node click handler — uses ref, not state
+   247→  const handleNodeClick = useCallback(
+   248→    (node: MapNode) => {
+   249→      if (hasMoved.current || traveling) return;
+   250→      setSelectedNode(node);
+   251→    },
+   252→    [traveling]
+   253→  );
+   254→
+   255→  // Discover action
+   256→  const handleDiscover = useCallback(() => {
+   257→    if (!selectedNode || traveling) return;
+   258→    const nodeId = selectedNode.id;
+   259→    const nodeName = selectedNode.name;
+   260→    setTraveling(true);
+   261→    setTravelTarget({ x: selectedNode.x, y: selectedNode.y });
+   262→    pendingActionRef.current = () => {
+   263→      discoverNode(nodeId);
+   264→      toast.success(`Сектор «${nodeName}» разведан!`);
+   265→    };
+   266→    setSelectedNode(null);
+   267→  }, [selectedNode, traveling, discoverNode]);
+   268→
+   269→  // Attack action
+   270→  const handleAttack = useCallback(() => {
+   271→    if (!selectedNode || !selectedSquadron || traveling) return;
+   272→    if (selectedNode.type !== 'pirate' && selectedNode.type !== 'anomaly') {
+   273→      toast.error('Можно атаковать только пиратов и аномалии');
+   274→      return;
+   275→    }
+   276→    const nodeId = selectedNode.id;
+   277→    const squadronId = selectedSquadron;
+   278→    setTraveling(true);
+   279→    setTravelTarget({ x: selectedNode.x, y: selectedNode.y });
+   280→    pendingActionRef.current = () => {
+   281→      const result = attackNode(nodeId, squadronId);
+   282→      if (result) {
+   283→        if (result.victory) {
+   284→          toast.success(`Победа! +${result.ratingChange} рейтинга`);
+   285→        } else {
+   286→          toast.error(`Поражение. ${result.ratingChange} рейтинга`);
+   287→        }
+   288→      } else {
+   289→        toast.error('Не удалось начать атаку — выберите эскадру с кораблями');
+   290→      }
+   291→    };
+   292→    setSelectedNode(null);
+   293→  }, [selectedNode, selectedSquadron, traveling, attackNode]);
+   294→
+   295→  // Map click (deselect)
+   296→  const handleMapClick = useCallback(() => {
+   297→    if (hasMoved.current) return;
+   298→    setSelectedNode(null);
+   299→  }, []);
+   300→
+   301→  return (
+   302→    <div className="relative w-full flex flex-col" style={{ background: '#0a0a1a', height: 'calc(100vh - 130px)' }}>
+   303→      {/* Header */}
+   304→      <div className="flex items-center justify-between px-4 py-3 neon-border" style={{ background: 'rgba(15, 15, 35, 0.95)' }}>
+   305→        <div className="flex items-center gap-2">
+   306→          <Crosshair className="w-5 h-5 text-neon-cyan" />
+   307→          <h2 className="text-sm font-bold neon-text-cyan uppercase tracking-wider">Сектор Андромеда-7</h2>
+   308→        </div>
+   309→        <div className="flex items-center gap-2">
+   310→          <Button
+   311→            size="sm"
+   312→            variant="ghost"
+   313→            onClick={() => {
+   314→              setZoom(prev => Math.min(3, prev * 1.2));
+   315→            }}
+   316→            className="h-7 w-7 p-0 text-neon-cyan hover:text-neon-cyan"
+   317→          >
+   318→            +
+   319→          </Button>
+   320→          <span className="text-xs font-mono text-muted-foreground w-10 text-center">
+   321→            {Math.round(zoom * 100)}%
+   322→          </span>
+   323→          <Button
+   324→            size="sm"
+   325→            variant="ghost"
+   326→            onClick={() => {
+   327→              setZoom(prev => Math.max(0.5, prev / 1.2));
+   328→            }}
+   329→            className="h-7 w-7 p-0 text-neon-cyan hover:text-neon-cyan"
+   330→          >
+   331→            −
+   332→          </Button>
+   333→          <Button
+   334→            size="sm"
+   335→            variant="outline"
+   336→            onClick={centerOnStation}
+   337→            className="h-7 px-2 text-[10px] font-mono neon-border text-neon-cyan hover:text-neon-cyan"
+   338→          >
+   339→            <MapPin className="w-3 h-3 mr-1" />
+   340→            Станция
+   341→          </Button>
+   342→        </div>
+   343→      </div>
+   344→
+   345→      {/* Map area */}
+   346→      <div
+   347→        ref={containerRef}
+   348→        className="flex-1 relative overflow-hidden cursor-grab active:cursor-grabbing"
+   349→        style={{ background: '#0a0a1a' }}
+   350→        onPointerDown={handlePointerDown}
+   351→        onPointerMove={handlePointerMove}
+   352→        onPointerUp={handlePointerUp}
+   353→        onPointerCancel={handlePointerUp}
+   354→        onTouchStart={handleTouchStart}
+   355→        onTouchMove={handleTouchMove}
+   356→        onClick={handleMapClick}
+   357→      >
+   358→        {/* Grid overlay */}
+   359→        <div
+   360→          className="absolute inset-0 pointer-events-none"
+   361→          style={{
+   362→            backgroundImage: `
+   363→              linear-gradient(rgba(0, 240, 255, 0.04) 1px, transparent 1px),
+   364→              linear-gradient(90deg, rgba(0, 240, 255, 0.04) 1px, transparent 1px)
+   365→            `,
+   366→            backgroundSize: '40px 40px',
+   367→          }}
+   368→        />
+   369→
+   370→        {/* Map content with transform */}
+   371→        <div
+   372→          ref={mapRef}
+   373→          className="absolute"
+   374→          style={{
+   375→            transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+   376→            transformOrigin: '0 0',
+   377→            width: '100%',
+   378→            height: '100%',
+   379→          }}
+   380→        >
+   381→          {/* SVG connections */}
+   382→          <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ overflow: 'visible' }}>
+   383→            {connections.map(([a, b], i) => (
+   384→              <line
+   385→                key={`conn-${i}`}
+   386→                x1={`${a.x}%`}
+   387→                y1={`${a.y}%`}
+   388→                x2={`${b.x}%`}
+   389→                y2={`${b.y}%`}
+   390→                stroke="rgba(0, 240, 255, 0.15)"
+   391→                strokeWidth="1"
+   392→                strokeDasharray="4 4"
+   393→              />
+   394→            ))}
+   395→          </svg>
+   396→
+   397→          {/* Nodes */}
+   398→          {mapNodes.map((node) => {
+   399→            const Icon = NODE_ICONS[node.type];
+   400→            const color = getNodeColor(node);
+   401→            const glow = getGlowColor(node);
+   402→            const isSelected = selectedNode?.id === node.id;
+   403→            const isHome = node.owner === 'player';
+   404→            const isAttackable = node.type === 'pirate' || node.type === 'anomaly';
+   405→
+   406→            return (
+   407→              <div
+   408→                key={node.id}
+   409→                className="absolute"
+   410→                style={{
+   411→                  left: `${node.x}%`,
+   412→                  top: `${node.y}%`,
+   413→                  transform: 'translate(-50%, -50%)',
+   414→                  zIndex: isSelected ? 20 : 10,
+   415→                }}
+   416→                onClick={(e) => {
+   417→                  e.stopPropagation();
+   418→                  handleNodeClick(node);
+   419→                }}
+   420→              >
+   421→                {/* Glow ring */}
+   422→                {node.discovered && (
+   423→                  <div
+   424→                    className="absolute rounded-full"
+   425→                    style={{
+   426→                      width: isHome ? 48 : 32,
+   427→                      height: isHome ? 48 : 32,
+   428→                      top: '50%',
+   429→                      left: '50%',
+   430→                      transform: 'translate(-50%, -50%)',
+   431→                      background: `radial-gradient(circle, ${glow}22 0%, transparent 70%)`,
+   432→                      animation: isAttackable ? 'pulse-glow 2s ease-in-out infinite' : isHome ? 'pulse-glow 2s ease-in-out infinite' : 'none',
+   433→                    }}
+   434→                  />
+   435→                )}
+   436→
+   437→                {/* Node dot */}
+   438→                <div
+   439→                  className="relative flex items-center justify-center rounded-full cursor-pointer transition-transform active:scale-90"
+   440→                  style={{
+   441→                    width: isHome ? 44 : 30,
+   442→                    height: isHome ? 44 : 30,
+   443→                    background: node.discovered
+   444→                      ? `radial-gradient(circle, ${color}33 0%, ${color}11 60%, transparent 100%)`
+   445→                      : 'rgba(100, 100, 130, 0.15)',
+   446→                    border: `2px solid ${color}`,
+   447→                    boxShadow: isSelected
+   448→                      ? `0 0 20px ${color}, 0 0 40px ${color}44`
+   449→                      : node.discovered
+   450→                      ? `0 0 10px ${color}44`
+   451→                      : 'none',
+   452→                  }}
+   453→                >
+   454→                  {Icon && (
+   455→                    <Icon
+   456→                      className={node.discovered ? '' : 'opacity-30'}
+   457→                      style={{ color, width: isHome ? 20 : 14, height: isHome ? 20 : 14 }}
+   458→                    />
+   459→                  )}
+   460→
+   461→                  {/* Selection ring */}
+   462→                  {isSelected && (
+   463→                    <div
+   464→                      className="absolute rounded-full border-2"
+   465→                      style={{
+   466→                        inset: -6,
+   467→                        borderColor: color,
+   468→                        animation: 'pulse-ring 1.5s ease-in-out infinite',
+   469→                      }}
+   470→                    />
+   471→                  )}
+   472→                </div>
+   473→
+   474→                {/* Name label */}
+   475→                {node.discovered && (
+   476→                  <div
+   477→                    className="absolute whitespace-nowrap text-center pointer-events-none"
+   478→                    style={{
+   479→                      top: isHome ? 52 : 38,
+   480→                      left: '50%',
+   481→                      transform: 'translateX(-50%)',
+   482→                    }}
+   483→                  >
+   484→                    <span
+   485→                      className="text-[10px] font-mono font-bold leading-tight block"
+   486→                      style={{ color, textShadow: `0 0 8px ${color}66` }}
+   487→                    >
+   488→                      {node.name.length > 20 ? node.name.slice(0, 18) + '…' : node.name}
+   489→                    </span>
+   490→                    {node.danger > 0 && (
+   491→                      <span className="text-[8px] font-mono text-neon-red/70">
+   492→                        ⚠ Ур.{node.level}
+   493→                      </span>
+   494→                    )}
+   495→                  </div>
+   496→                )}
+   497→
+   498→                {/* Undiscovered "?" */}
+   499→                {!node.discovered && (
+   500→                  <span className="absolute -bottom-3 left-1/2 -translate-x-1/2 text-[9px] font-mono text-muted-foreground/50">
+   501→                    ???
+   502→                  </span>
+   503→                )}
+   504→              </div>
+   505→            );
+   506→          })}
+   507→
+   508→          {/* Traveling ship animation */}
+   509→          <AnimatePresence>
+   510→            {traveling && travelTarget && (
+   511→              <motion.div
+   512→                key="traveling-ship"
+   513→                initial={{ left: '50%', top: '50%', opacity: 0 }}
+   514→                animate={{ left: `${travelTarget.x}%`, top: `${travelTarget.y}%`, opacity: 1 }}
+   515→                exit={{ opacity: 0 }}
+   516→                transition={{ duration: 1.5, ease: 'easeInOut' }}
+   517→                onAnimationComplete={() => {
+   518→                  if (pendingActionRef.current) {
+   519→                    pendingActionRef.current();
+   520→                    pendingActionRef.current = null;
+   521→                  }
+   522→                  setTraveling(false);
+   523→                  setTravelTarget(null);
+   524→                }}
+   525→                className="absolute pointer-events-none"
+   526→                style={{ zIndex: 50 }}
+   527→              >
+   528→                <div className="relative" style={{ transform: 'translate(-50%, -50%)' }}>
+   529→                  {/* Outer glow pulse */}
+   530→                  <div
+   531→                    className="absolute rounded-full"
+   532→                    style={{
+   533→                      width: 40,
+   534→                      height: 40,
+   535→                      left: -15,
+   536→                      top: -15,
+   537→                      background: 'radial-gradient(circle, rgba(0, 240, 255, 0.35) 0%, rgba(0, 240, 255, 0.1) 40%, transparent 70%)',
+   538→                      animation: 'pulse-glow 0.6s ease-in-out infinite alternate',
+   539→                    }}
+   540→                  />
+   541→                  {/* Trail glow */}
+   542→                  <div
+   543→                    className="absolute rounded-full"
+   544→                    style={{
+   545→                      width: 20,
+   546→                      height: 20,
+   547→                      left: -5,
+   548→                      top: -5,
+   549→                      background: 'radial-gradient(circle, rgba(0, 240, 255, 0.2) 0%, transparent 70%)',
+   550→                      filter: 'blur(3px)',
+   551→                    }}
+   552→                  />
+   553→                  {/* Core dot */}
+   554→                  <div
+   555→                    style={{
+   556→                      width: 10,
+   557→                      height: 10,
+   558→                      borderRadius: '50%',
+   559→                      background: '#00f0ff',
+   560→                      boxShadow: '0 0 6px #00f0ff, 0 0 14px rgba(0, 240, 255, 0.8), 0 0 28px rgba(0, 240, 255, 0.4), 0 0 48px rgba(0, 240, 255, 0.2)',
+   561→                    }}
+   562→                  />
+   563→                </div>
+   564→              </motion.div>
+   565→            )}
+   566→          </AnimatePresence>
+   567→        </div>
+   568→
+   569→        {/* Legend */}
+   570→        <div
+   571→          className="absolute bottom-3 left-3 flex flex-col gap-1.5 p-2.5 rounded-lg text-[9px] font-mono"
+   572→          style={{ background: 'rgba(10, 10, 26, 0.85)', border: '1px solid rgba(0, 240, 255, 0.15)' }}
+   573→        >
+   574→          {[
+   575→            { type: 'station', label: 'Ваша станция', color: NODE_COLORS.station },
+   576→            { type: 'pirate', label: 'Пираты', color: NODE_COLORS.pirate },
+   577→            { type: 'anomaly', label: 'Аномалия', color: NODE_COLORS.anomaly },
+   578→            { type: 'neutral', label: 'Нейтральные', color: NODE_COLORS.neutral },
+   579→          ].map(l => (
+   580→            <div key={l.type} className="flex items-center gap-1.5">
+   581→              <div className="w-2 h-2 rounded-full" style={{ background: l.color, boxShadow: `0 0 6px ${l.color}` }} />
+   582→              <span className="text-muted-foreground">{l.label}</span>
+   583→            </div>
+   584→          ))}
+   585→        </div>
+   586→      </div>
+   587→
+   588→      {/* Node Detail Panel */}
+   589→      <AnimatePresence>
+   590→        {selectedNode && (
+   591→          <motion.div
+   592→            initial={{ y: 320, opacity: 0 }}
+   593→            animate={{ y: 0, opacity: 1 }}
+   594→            exit={{ y: 320, opacity: 0 }}
+   595→            transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+   596→            className="absolute bottom-0 left-0 right-0 z-30"
+   597→            style={{
+   598→              background: 'rgba(10, 10, 30, 0.97)',
+   599→              borderTop: `1px solid ${getNodeColor(selectedNode)}44`,
+   600→              backdropFilter: 'blur(12px)',
+   601→              maxHeight: '55vh',
+   602→            }}
+   603→          >
+   604→            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain mobile-scroll max-h-[55vh]">
+   605→              <div className="p-4">
+   606→                {/* Header */}
+   607→                <div className="flex items-start justify-between mb-3">
+   608→                  <div className="flex items-center gap-2">
+   609→                    <div
+   610→                      className="w-8 h-8 rounded-full flex items-center justify-center"
+   611→                      style={{
+   612→                        background: `${getNodeColor(selectedNode)}22`,
+   613→                        border: `1px solid ${getNodeColor(selectedNode)}66`,
+   614→                      }}
+   615→                    >
+   616→                      {(() => {
+   617→                        const Icon = NODE_ICONS[selectedNode.type];
+   618→                        return Icon ? <Icon style={{ color: getNodeColor(selectedNode), width: 16, height: 16 }} /> : null;
+   619→                      })()}
+   620→                    </div>
+   621→                    <div>
+   622→                      <h3 className="text-sm font-bold" style={{ color: getNodeColor(selectedNode) }}>
+   623→                        {selectedNode.name}
+   624→                      </h3>
+   625→                      <span className="text-[10px] font-mono text-muted-foreground">
+   626→                        {TYPE_LABELS[selectedNode.type]} · Ур. {selectedNode.level}
+   627→                      </span>
+   628→                    </div>
+   629→                  </div>
+   630→                  <Button
+   631→                    size="icon"
+   632→                    variant="ghost"
+   633→                    className="h-7 w-7 text-muted-foreground"
+   634→                    onClick={() => setSelectedNode(null)}
+   635→                  >
+   636→                    <X className="w-4 h-4" />
+   637→                  </Button>
+   638→                </div>
+   639→
+   640→                {/* Danger rating */}
+   641→                {selectedNode.danger > 0 && (
+   642→                  <div className="flex items-center gap-2 mb-3">
+   643→                    <span className="text-[10px] font-mono text-muted-foreground">Опасность:</span>
+   644→                    <div className="flex gap-0.5">
+   645→                      {Array.from({ length: 10 }).map((_, i) => (
+   646→                        <div
+   647→                          key={i}
+   648→                          className="w-2 h-2 rounded-sm"
+   649→                          style={{
+   650→                            background: i < selectedNode.danger
+   651→                              ? i < 4
+   652→                                ? '#22c55e'
+   653→                                : i < 7
+   654→                                ? '#fbbf24'
+   655→                                : '#ef4444'
+   656→                              : 'rgba(100, 100, 130, 0.3)',
+   657→                          }}
+   658→                        />
+   659→                      ))}
+   660→                    </div>
+   661→                    <span className="text-[10px] font-mono text-neon-orange">{selectedNode.danger}/10</span>
+   662→                  </div>
+   663→                )}
+   664→
+   665→                {/* Resources preview */}
+   666→                {selectedNode.discovered && Object.keys(selectedNode.resources).length > 0 && (
+   667→                  <div className="flex flex-wrap gap-1.5 mb-3">
+   668→                    {Object.entries(selectedNode.resources).map(([key, val]) => {
+   669→                      if (!val) return null;
+   670→                      const config = RESOURCE_CONFIG[key as keyof typeof RESOURCE_CONFIG];
+   671→                      if (!config) return null;
+   672→                      return (
+   673→                        <Badge
+   674→                          key={key}
+   675→                          variant="outline"
+   676→                          className="text-[10px] gap-1"
+   677→                          style={{ borderColor: `${config.color}44`, color: config.color }}
+   678→                        >
+   679→                          <Zap className="w-2.5 h-2.5" style={{ color: config.color }} />
+   680→                          {val.toLocaleString('ru-RU')} {config.name}
+   681→                        </Badge>
+   682→                      );
+   683→                    })}
+   684→                  </div>
+   685→                )}
+   686→
+   687→                {/* Description */}
+   688→                <p className="text-xs text-slate-400 mb-3 leading-relaxed">
+   689→                  {selectedNode.discovered ? getNodeDescription(selectedNode) : 'Сектор не разведан. Отправьте зонд для сканирования.'}
+   690→                </p>
+   691→
+   692→                {/* Actions */}
+   693→                <div className="flex gap-2 mt-2">
+   694→                  {!selectedNode.discovered && (
+   695→                    <Button
+   696→                      size="sm"
+   697→                      className="flex-1 holo-btn neon-border text-neon-cyan hover:text-neon-cyan"
+   698→                      style={{ background: 'rgba(0, 240, 255, 0.1)' }}
+   699→                      disabled={traveling}
+   700→                      onClick={handleDiscover}
+   701→                    >
+   702→                      <Eye className="w-4 h-4 mr-1" />
+   703→                      Разведать
+   704→                    </Button>
+   705→                  )}
+   706→
+   707→                  {(selectedNode.type === 'pirate' || selectedNode.type === 'anomaly') && selectedNode.discovered && (
+   708→                    <>
+   709→                      {squadrons.length > 0 ? (
+   710→                        <div className="flex-1 flex flex-col gap-2">
+   711→                          <select
+   712→                            value={selectedSquadron}
+   713→                            onChange={(e) => setSelectedSquadron(e.target.value)}
+   714→                            className="w-full h-8 px-2 rounded-md text-xs font-mono neon-border"
+   715→                            style={{ background: 'rgba(10, 10, 30, 0.9)', color: '#e2e8f0' }}
+   716→                          >
+   717→                            <option value="">Выберите эскадру...</option>
+   718→                            {squadrons.map(sq => {
+   719→                              const power = getFleetPower(sq.id);
+   720→                              return (
+   721→                                <option key={sq.id} value={sq.id}>
+   722→                                  {sq.name} (⚔{power.attack} 🛡{power.defense})
+   723→                                </option>
+   724→                              );
+   725→                            })}
+   726→                          </select>
+   727→                          <Button
+   728→                            size="sm"
+   729→                            className="w-full holo-btn"
+   730→                            style={{
+   731→                              background: 'rgba(239, 68, 68, 0.15)',
+   732→                              border: '1px solid rgba(239, 68, 68, 0.4)',
+   733→                              color: '#ef4444',
+   734→                            }}
+   735→                            disabled={!selectedSquadron || traveling}
+   736→                            onClick={handleAttack}
+   737→                          >
+   738→                            <Swords className="w-4 h-4 mr-1" />
+   739→                            Атаковать
+   740→                          </Button>
+   741→                        </div>
+   742→                      ) : (
+   743→                        <div className="flex-1 p-3 rounded-lg text-center text-xs text-muted-foreground neon-border">
+   744→                          <Shield className="w-6 h-6 mx-auto mb-1 text-muted-foreground/50" />
+   745→                          Создайте эскадру в Ангаре для атаки
+   746→                        </div>
+   747→                      )}
+   748→                    </>
+   749→                  )}
+   750→
+   751→                  {selectedNode.type === 'neutral' && selectedNode.discovered && (
+   752→                    <div className="flex-1 p-3 rounded-lg text-center text-xs text-muted-foreground neon-border">
+   753→                      <Star className="w-6 h-6 mx-auto mb-1 text-neon-yellow/50" />
+   754→                      Нейтральная станция — торговля доступна позже
+   755→                    </div>
+   756→                  )}
+   757→
+   758→                  {selectedNode.type === 'empty' && selectedNode.discovered && (
+   759→                    <div className="flex-1 p-3 rounded-lg text-center text-xs text-muted-foreground neon-border">
+   760→                      <CircleDot className="w-6 h-6 mx-auto mb-1 text-muted-foreground/50" />
+   761→                      Пустой сектор — здесь ничего нет
+   762→                    </div>
+   763→                  )}
+   764→
+   765→                  {selectedNode.type === 'station' && selectedNode.discovered && (
+   766→                    <div className="flex-1 p-3 rounded-lg text-center text-xs neon-border" style={{ color: '#00f0ff' }}>
+   767→                      <Target className="w-6 h-6 mx-auto mb-1 text-neon-cyan" />
+   768→                      Это ваша станция — ФОРПОСТ-7
+   769→                    </div>
+   770→                  )}
+   771→                </div>
+   772→              </div>
+   773→            </div>
+   774→          </motion.div>
+   775→        )}
+   776→      </AnimatePresence>
+   777→    </div>
+   778→  );
+   779→}
+   780→
+   781→// Node description generator
+   782→function getNodeDescription(node: MapNode): string {
+   783→  switch (node.type) {
+   784→    case 'pirate':
+   785→      return `⚠️ Пиратская база «${node.name}». Уровень угрозы: ${node.danger}/10. Подготовьте эскадру и атакуйте для захвата ресурсов.`;
+   786→    case 'anomaly':
+   787→      return `✨ Загадочная аномалия «${node.name}». Исследуйте для получения ценных кристаллов и научных данных. Опасность: ${node.danger}/10.`;
+   788→    case 'neutral':
+   789→      return `🏭 Нейтральная торговая станция. Здесь можно обменивать ресурсы и получать задания.`;
+   790→    case 'station':
+   791→      return `🏠 Ваша домашняя станция ФОРПОСТ-7. Центр ваших операций в секторе Андромеда-7.`;
+   792→    case 'empty':
+   793→      return `🌌 Пустой сектор. Ничего интересного не обнаружено.`;
+   794→    default:
+   795→      return 'Неизвестный сектор.';
+   796→  }
+   797→}
