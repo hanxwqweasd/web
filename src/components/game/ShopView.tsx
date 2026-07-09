@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useGameStore } from '@/lib/game/store';
 import { SHOP_ITEMS } from '@/lib/game/constants';
@@ -13,7 +13,7 @@ import {
   Loader2, CheckCircle2, MessageCircle, RefreshCw,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { getTelegramUser, hapticFeedback } from '@/lib/telegram';
+import { getTelegramUser, hapticFeedback, onInvoiceClosed, offInvoiceClosed } from '@/lib/telegram';
 
 const STARS_DONATION_TIERS = [
   { id: 'support', name: 'Поддержка', stars: 1, reward: '500 энерг 500 мин 200 био 10 оск', icon: Heart, color: '#22c55e' },
@@ -43,11 +43,66 @@ export default function ShopView() {
   const [sentTier, setSentTier] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
   const [activeTab, setActiveTab] = useState<'stars' | 'shop'>('stars');
+  const syncRef = useRef<() => void>(() => {});
 
   const filteredItems = useMemo(() => {
     if (activeCategory === 'all') return SHOP_ITEMS;
     return SHOP_ITEMS.filter(item => item.category === activeCategory);
   }, [activeCategory]);
+
+  const syncResources = useCallback(() => {
+    const user = getTelegramUser();
+    if (!user) {
+      toast.error('Ошибка: пользователь не найден');
+      return;
+    }
+    setChecking(true);
+    fetch(`/api/player?telegramUserId=${user.id}`)
+      .then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
+      .then(data => {
+        if (data.player) {
+          const p = data.player;
+          useGameStore.setState({
+            resources: {
+              energy: p.energy || 0,
+              minerals: p.minerals || 0,
+              bioMatter: p.bioMatter || 0,
+              crystals: p.crystals || 0,
+            },
+            starShards: p.starShards || 0,
+          });
+          toast.success('Ресурсы обновлены!');
+          hapticFeedback('success');
+          setSentTier(null);
+        } else if (data.error) {
+          toast.error(data.error);
+        } else {
+          toast.error('Игрок не найден');
+        }
+      })
+      .catch(() => toast.error('Ошибка синхронизации'))
+      .finally(() => setChecking(false));
+  }, []);
+
+  // Auto-sync resources when Telegram invoice is paid
+  useEffect(() => {
+    syncRef.current = syncResources;
+  }, [syncResources]);
+
+  useEffect(() => {
+    const handleInvoiceClosed = (event: { status: string; payload?: string }) => {
+      if (event.status === 'paid') {
+        toast.success('Оплата прошла! Синхронизируем ресурсы...');
+        // Small delay to let the bot process the payment
+        setTimeout(() => syncRef.current(), 2000);
+      }
+    };
+    onInvoiceClosed(handleInvoiceClosed);
+    return () => { offInvoiceClosed(handleInvoiceClosed); };
+  }, []);
 
   const handleBuy = useCallback((item: ShopItem) => {
     const result = buyShopItem(item.id);
@@ -90,43 +145,6 @@ export default function ShopView() {
     } finally {
       setSendingTier(null);
     }
-  }, []);
-
-  const syncResources = useCallback(() => {
-    const user = getTelegramUser();
-    if (!user) {
-      toast.error('Ошибка: пользователь не найден');
-      return;
-    }
-    setChecking(true);
-    fetch(`/api/player?telegramUserId=${user.id}`)
-      .then(r => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
-      })
-      .then(data => {
-        if (data.player) {
-          const p = data.player;
-          useGameStore.setState({
-            resources: {
-              energy: p.energy || 0,
-              minerals: p.minerals || 0,
-              bioMatter: p.bioMatter || 0,
-              crystals: p.crystals || 0,
-            },
-            starShards: p.starShards || 0,
-          });
-          toast.success('Ресурсы обновлены!');
-          hapticFeedback('success');
-          setSentTier(null);
-        } else if (data.error) {
-          toast.error(data.error);
-        } else {
-          toast.error('Игрок не найден');
-        }
-      })
-      .catch(() => toast.error('Ошибка синхронизации'))
-      .finally(() => setChecking(false));
   }, []);
 
   return (
@@ -344,7 +362,7 @@ function ShopTabContent({ activeCategory, onCategoryChange, filteredItems, starS
       </div>
 
       {/* Shop items grid */}
-      <div className="px-3 pb-4 grid grid-cols-2 gap-2.5">
+      <div className="px-3 pb-20 grid grid-cols-2 gap-2.5">
         <AnimatePresence mode="popLayout">
           {filteredItems.map((item, index) => {
             const Icon = ICON_MAP[item.icon] || Package;

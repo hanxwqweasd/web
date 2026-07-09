@@ -413,19 +413,15 @@ export default function QuestsView() {
           </TabsList>
         </div>
 
-        <TabsContent value="daily" className="flex-1 overflow-y-auto">
-          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain mobile-scroll">
-            <div className="p-4 pb-20">
-              <DailyQuestsTab />
-            </div>
+        <TabsContent value="daily" className="flex-1 min-h-0 overflow-y-auto overscroll-contain mobile-scroll">
+          <div className="p-4 pb-20">
+            <DailyQuestsTab />
           </div>
         </TabsContent>
 
-        <TabsContent value="achievements" className="flex-1 overflow-y-auto">
-          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain mobile-scroll">
-            <div className="p-4 pb-20">
-              <AchievementsTab />
-            </div>
+        <TabsContent value="achievements" className="flex-1 min-h-0 overflow-y-auto overscroll-contain mobile-scroll">
+          <div className="p-4 pb-20">
+            <AchievementsTab />
           </div>
         </TabsContent>
       </Tabs>

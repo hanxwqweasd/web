@@ -351,12 +351,12 @@ export default function GamePage() {
       {/* Navigation */}
       <NavigationBar />
 
-      {/* Overlays */}
+      {/* Overlays — hidden on admin screen */}
       <AnimatePresence>
-        {faction === null && <FactionSelector />}
+        {currentScreen !== 'admin' && faction === null && <FactionSelector />}
       </AnimatePresence>
       <AnimatePresence>
-        {showTutorial && <TutorialOverlay />}
+        {currentScreen !== 'admin' && showTutorial && <TutorialOverlay />}
       </AnimatePresence>
     </div>
   );
