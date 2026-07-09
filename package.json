@@ -4,8 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 3000 2>&1 | tee dev.log",
-    "build": "prisma generate && next build && cp -r .next/static .next/standalone/.next/ && cp -r public .next/standalone/",
-    "start": "node start.cjs",
+    "build": "prisma generate && next build",
+    "start": "npx prisma db push --skip-generate && npx next start -p $PORT",
     "lint": "eslint .",
     "db:push": "prisma db push",
     "db:generate": "prisma generate",
