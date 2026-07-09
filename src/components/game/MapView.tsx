@@ -601,7 +601,7 @@ export default function MapView() {
               maxHeight: '55vh',
             }}
           >
-            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain mobile-scroll max-h-[55vh]">
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain mobile-scroll">
               <div className="p-4">
                 {/* Header */}
                 <div className="flex items-start justify-between mb-3">

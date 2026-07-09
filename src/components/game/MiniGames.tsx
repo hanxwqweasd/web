@@ -793,13 +793,13 @@ export default function MiniGames() {
           </TabsList>
         </div>
 
-        <TabsContent value="scanner" className="flex-1 overflow-y-auto">
+        <TabsContent value="scanner" className="flex-1 overflow-y-auto overscroll-contain mobile-scroll">
           <div className="min-h-full flex items-start justify-center pt-4 pb-20">
             <SectorScanner />
           </div>
         </TabsContent>
 
-        <TabsContent value="asteroids" className="flex-1 overflow-y-auto">
+        <TabsContent value="asteroids" className="flex-1 overflow-y-auto overscroll-contain mobile-scroll">
           <div className="p-4 pb-20">
             <AsteroidDefense />
           </div>

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { GameState, StationModule, Ship, Squadron, CombatResult, MapNode } from './types';
+import type { GameState, StationModule, Ship, Squadron, CombatResult, MapNode, RoomId } from './types';
 import { MODULE_DEFS, TECH_DEFS, SHIP_DEFS, ROOM_DEFS, DEFAULT_MAP_NODES, generateDailyQuests, COLLECTION_COOLDOWN, SCAN_COOLDOWN } from './constants';
 import { v4 as uuid } from 'uuid';
 
@@ -144,6 +144,27 @@ interface GameStore extends GameState {
 
   // Recalculate
   recalculateRates: () => void;
+
+  // Load from server DB
+  loadFromServer: (data: {
+    captainName?: string;
+    faction?: string | null;
+    rating?: number;
+    level?: number;
+    stationLevel?: number;
+    energy?: number;
+    minerals?: number;
+    bioMatter?: number;
+    crystals?: number;
+    starShards?: number;
+    sciencePoints?: number;
+    pvpWins?: number;
+    pvpLosses?: number;
+    totalMineralsMined?: number;
+    totalBattlesWon?: number;
+    totalEnemiesDefeated?: number;
+    gameStateSnapshot?: string | null;
+  }) => void;
 }
 
 export const useGameStore = create<GameStore>()(
@@ -697,6 +718,93 @@ export const useGameStore = create<GameStore>()(
 
       resetGame: () => {
         set({ ...initialState, lastTick: Date.now(), dailyQuests: generateDailyQuests(), mapNodes: DEFAULT_MAP_NODES.map(n => ({ ...n })) });
+      },
+
+      loadFromServer: (data) => {
+        const snapshot: Record<string, unknown> = {};
+        if (data.gameStateSnapshot) {
+          try {
+            const parsed = JSON.parse(data.gameStateSnapshot);
+            Object.assign(snapshot, parsed);
+          } catch (e) {
+            console.warn('[Store] Failed to parse gameStateSnapshot:', e);
+          }
+        }
+
+        const update: Record<string, unknown> = {
+          lastTick: Date.now(),
+        };
+
+        // Basic fields
+        if (data.captainName !== undefined) update.captainName = data.captainName;
+        if (data.faction !== undefined) update.faction = data.faction;
+        if (data.rating !== undefined) update.rating = data.rating;
+        if (data.level !== undefined) update.level = data.level;
+        if (data.stationLevel !== undefined) update.stationLevel = data.stationLevel;
+        if (data.starShards !== undefined) update.starShards = data.starShards;
+        if (data.sciencePoints !== undefined) update.sciencePoints = data.sciencePoints;
+        if (data.pvpWins !== undefined) update.pvpWins = data.pvpWins;
+        if (data.pvpLosses !== undefined) update.pvpLosses = data.pvpLosses;
+        if (data.totalMineralsMined !== undefined) update.totalMineralsMined = data.totalMineralsMined;
+        if (data.totalBattlesWon !== undefined) update.totalBattlesWon = data.totalBattlesWon;
+        if (data.totalEnemiesDefeated !== undefined) update.totalEnemiesDefeated = data.totalEnemiesDefeated;
+
+        // Resources
+        const currentResources = get().resources;
+        update.resources = {
+          energy: data.energy ?? currentResources.energy,
+          minerals: data.minerals ?? currentResources.minerals,
+          bioMatter: data.bioMatter ?? currentResources.bioMatter,
+          crystals: data.crystals ?? currentResources.crystals,
+        };
+
+        // Snapshot fields
+        if (snapshot.researchedTechs && Array.isArray(snapshot.researchedTechs)) {
+          update.researchedTechs = snapshot.researchedTechs as string[];
+        }
+        if (snapshot.unlockedRooms && Array.isArray(snapshot.unlockedRooms)) {
+          update.unlockedRooms = snapshot.unlockedRooms as RoomId[];
+        }
+        if (snapshot.ships && Array.isArray(snapshot.ships)) {
+          update.ships = snapshot.ships as Ship[];
+        }
+        if (snapshot.squadrons && Array.isArray(snapshot.squadrons)) {
+          update.squadrons = snapshot.squadrons as Squadron[];
+        }
+        if (snapshot.modules && Array.isArray(snapshot.modules)) {
+          update.modules = snapshot.modules as StationModule[];
+        }
+        if (snapshot.achievements && Array.isArray(snapshot.achievements)) {
+          update.achievements = snapshot.achievements as string[];
+        }
+        if (snapshot.dailyQuests && Array.isArray(snapshot.dailyQuests)) {
+          update.dailyQuests = snapshot.dailyQuests as GameState['dailyQuests'];
+        }
+        if (snapshot.mapNodes && Array.isArray(snapshot.mapNodes)) {
+          update.mapNodes = snapshot.mapNodes as MapNode[];
+        }
+        if (snapshot.lastCollectionTimes && typeof snapshot.lastCollectionTimes === 'object') {
+          update.lastCollectionTimes = snapshot.lastCollectionTimes as Record<string, number>;
+        }
+        if (typeof snapshot.lastScanTime === 'number') {
+          update.lastScanTime = snapshot.lastScanTime;
+        }
+        if (typeof snapshot.moduleSlots === 'number') {
+          update.moduleSlots = snapshot.moduleSlots;
+        }
+        if (typeof snapshot.factionRank === 'number') {
+          update.factionRank = snapshot.factionRank;
+        }
+        if (typeof snapshot.stationName === 'string') {
+          update.stationName = snapshot.stationName;
+        }
+        if (snapshot.combatLog && Array.isArray(snapshot.combatLog)) {
+          update.combatLog = snapshot.combatLog as CombatResult[];
+        }
+
+        set(update as Partial<GameState>);
+        // Recalculate resource rates after loading
+        get().recalculateRates();
       },
     }),
     {

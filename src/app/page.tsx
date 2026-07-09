@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useGameStore } from '@/lib/game/store';
 import type { GameScreen } from '@/lib/game/types';
 import { initTelegramWebApp, getTelegramUser } from '@/lib/telegram';
@@ -186,6 +186,7 @@ export default function GamePage() {
   const setScreen = useGameStore(s => s.setScreen);
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const saveRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [initializing, setInitializing] = useState(true);
 
   // Expose setScreen to window for admin access via console
   useEffect(() => {
@@ -223,7 +224,7 @@ export default function GamePage() {
         }, 500);
       }
 
-      // Register/update player in DB
+      // Register/update player in DB, then load server state
       fetch('/api/player', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -251,7 +252,42 @@ export default function GamePage() {
           // Trigger immediate save so player appears in leaderboard
           setTimeout(() => tick(), 500);
         }
-      }).catch(() => {});
+
+        // Load player data from DB to override localStorage
+        fetch(`/api/player?telegramUserId=${user.id}`)
+          .then(r => r.json())
+          .then(playerData => {
+            if (playerData.player) {
+              console.log('[Player] Loading server state');
+              useGameStore.getState().loadFromServer({
+                captainName: playerData.player.captainName,
+                faction: playerData.player.faction,
+                rating: playerData.player.rating,
+                level: playerData.player.level,
+                stationLevel: playerData.player.stationLevel,
+                energy: playerData.player.energy,
+                minerals: playerData.player.minerals,
+                bioMatter: playerData.player.bioMatter,
+                crystals: playerData.player.crystals,
+                starShards: playerData.player.starShards,
+                sciencePoints: playerData.player.sciencePoints,
+                pvpWins: playerData.player.pvpWins,
+                pvpLosses: playerData.player.pvpLosses,
+                totalMineralsMined: playerData.player.totalMineralsMined,
+                totalBattlesWon: playerData.player.totalBattlesWon,
+                totalEnemiesDefeated: playerData.player.totalEnemiesDefeated,
+                gameStateSnapshot: playerData.player.gameStateSnapshot,
+              });
+            }
+          })
+          .catch(() => {})
+          .finally(() => setInitializing(false));
+      }).catch(() => setInitializing(false));
+
+    } else {
+      // No Telegram user — still finish initializing
+      // Use queueMicrotask to avoid synchronous setState in effect
+      queueMicrotask(() => setInitializing(false));
     }
 
   }, []);
@@ -308,6 +344,15 @@ export default function GamePage() {
             ships: state.ships,
             squadrons: state.squadrons,
             modules: state.modules,
+            achievements: state.achievements,
+            dailyQuests: state.dailyQuests,
+            mapNodes: state.mapNodes,
+            lastCollectionTimes: state.lastCollectionTimes,
+            lastScanTime: state.lastScanTime,
+            moduleSlots: state.moduleSlots,
+            factionRank: state.factionRank,
+            stationName: state.stationName,
+            combatLog: state.combatLog,
           }),
         }),
       }).catch(() => {});
@@ -351,9 +396,16 @@ export default function GamePage() {
       {/* Navigation */}
       <NavigationBar />
 
-      {/* Overlays — hidden on admin screen */}
+      {/* Loading spinner during initialization */}
+      {initializing && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-space-dark">
+          <div className="w-8 h-8 border-2 border-neon-cyan/30 border-t-neon-cyan rounded-full animate-spin" />
+        </div>
+      )}
+
+      {/* Overlays — hidden on admin screen or during initialization */}
       <AnimatePresence>
-        {currentScreen !== 'admin' && faction === null && <FactionSelector />}
+        {!initializing && currentScreen !== 'admin' && faction === null && <FactionSelector />}
       </AnimatePresence>
       <AnimatePresence>
         {currentScreen !== 'admin' && showTutorial && <TutorialOverlay />}

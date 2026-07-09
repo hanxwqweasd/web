@@ -880,7 +880,7 @@ export default function StationView() {
       </motion.header>
 
       {/* Module Grid */}
-      <div className="px-3 flex-1 min-h-0 overflow-y-auto overscroll-contain mobile-scroll">
+      <div className="px-3 flex-1 min-h-0 overflow-y-auto overscroll-contain mobile-scroll pb-20">
         <motion.div
           layout
           className="grid grid-cols-2 md:grid-cols-3 gap-2.5"

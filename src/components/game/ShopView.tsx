@@ -41,6 +41,7 @@ export default function ShopView() {
   const [activeCategory, setActiveCategory] = useState('all');
   const [sendingTier, setSendingTier] = useState<string | null>(null);
   const [sentTier, setSentTier] = useState<string | null>(null);
+  const sentTierRef = useRef<string | null>(null);
   const [checking, setChecking] = useState(false);
   const [activeTab, setActiveTab] = useState<'stars' | 'shop'>('stars');
   const syncRef = useRef<() => void>(() => {});
@@ -56,33 +57,46 @@ export default function ShopView() {
       toast.error('Ошибка: пользователь не найден');
       return;
     }
+    // First try to claim the pending tier
+    const currentTier = sentTierRef.current;
+    const claimPromise = currentTier
+      ? fetch('/api/stars/claim', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ itemId: currentTier, telegramUserId: String(user.id) }),
+        }).catch(() => {})
+      : Promise.resolve();
+
     setChecking(true);
-    fetch(`/api/player?telegramUserId=${user.id}`)
-      .then(r => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
-      })
-      .then(data => {
-        if (data.player) {
-          const p = data.player;
-          useGameStore.setState({
-            resources: {
-              energy: p.energy || 0,
-              minerals: p.minerals || 0,
-              bioMatter: p.bioMatter || 0,
-              crystals: p.crystals || 0,
-            },
-            starShards: p.starShards || 0,
-          });
-          toast.success('Ресурсы обновлены!');
-          hapticFeedback('success');
-          setSentTier(null);
-        } else if (data.error) {
-          toast.error(data.error);
-        } else {
-          toast.error('Игрок не найден');
-        }
-      })
+    claimPromise.then(() =>
+      fetch(`/api/player?telegramUserId=${user.id}`)
+        .then(r => {
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          return r.json();
+        })
+        .then(data => {
+          if (data.player) {
+            const p = data.player;
+            useGameStore.setState({
+              resources: {
+                energy: p.energy || 0,
+                minerals: p.minerals || 0,
+                bioMatter: p.bioMatter || 0,
+                crystals: p.crystals || 0,
+              },
+              starShards: p.starShards || 0,
+            });
+            toast.success('Ресурсы обновлены!');
+            hapticFeedback('success');
+            setSentTier(null);
+            sentTierRef.current = null;
+          } else if (data.error) {
+            toast.error(data.error);
+          } else {
+            toast.error('Игрок не найден');
+          }
+        })
+    )
       .catch(() => toast.error('Ошибка синхронизации'))
       .finally(() => setChecking(false));
   }, []);
@@ -95,9 +109,19 @@ export default function ShopView() {
   useEffect(() => {
     const handleInvoiceClosed = (event: { status: string; payload?: string }) => {
       if (event.status === 'paid') {
-        toast.success('Оплата прошла! Синхронизируем ресурсы...');
-        // Small delay to let the bot process the payment
-        setTimeout(() => syncRef.current(), 2000);
+        toast.success('Оплата прошла! Начисляем ресурсы...');
+        // Call /api/stars/claim directly in case the bot is slow
+        const user = getTelegramUser();
+        const currentTier = sentTierRef.current;
+        if (user && currentTier) {
+          fetch('/api/stars/claim', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ itemId: currentTier, telegramUserId: String(user.id) }),
+          }).catch(() => {});
+        }
+        // Wait 1 second then sync resources from DB
+        setTimeout(() => syncRef.current(), 1000);
       }
     };
     onInvoiceClosed(handleInvoiceClosed);
@@ -122,7 +146,8 @@ export default function ShopView() {
       return;
     }
     setSendingTier(tierId);
-    setSentTier(null);
+    setSentTier(tierId);
+    sentTierRef.current = tierId;
     hapticFeedback('light');
     try {
       const res = await fetch('/api/stars/send-invoice', {
@@ -132,7 +157,7 @@ export default function ShopView() {
       });
       const data = await res.json() as { success?: boolean; error?: string };
       if (data.success) {
-        setSentTier(tierId);
+        sentTierRef.current = tierId;
         hapticFeedback('success');
         toast.success('Счёт отправлен в чат!');
       } else {
@@ -190,7 +215,7 @@ export default function ShopView() {
       </div>
 
       {/* Scrollable content */}
-      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain mobile-scroll">
+      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain mobile-scroll pb-20">
         {activeTab === 'stars' ? <StarsTabContent
           sendingTier={sendingTier}
           sentTier={sentTier}
