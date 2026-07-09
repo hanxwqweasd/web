@@ -58,8 +58,8 @@ export async function POST(request: NextRequest) {
     }
 
     // Find or create player and grant rewards
-    const tgId = parseInt(telegramUserId, 10);
-    if (isNaN(tgId)) {
+    const tgId = String(telegramUserId);
+    if (!tgId) {
       return NextResponse.json({ success: false, error: 'Invalid user ID' }, { status: 400 });
     }
 

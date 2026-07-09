@@ -12,7 +12,7 @@ export async function GET(request: NextRequest) {
     }
 
     const player = await db.player.findUnique({
-      where: { telegramUserId: parseInt(telegramUserId) },
+      where: { telegramUserId: String(telegramUserId) },
       include: { referrals: { select: { id: true, firstName: true, username: true, createdAt: true, level: true } } },
     });
 
@@ -40,7 +40,8 @@ export async function GET(request: NextRequest) {
 // POST /api/player/referral — Apply referral code
 export async function POST(request: NextRequest) {
   try {
-    const { telegramUserId, referralCode } = await request.json() as { telegramUserId: number; referralCode: string };
+    const { telegramUserId: rawTgId, referralCode } = await request.json() as { telegramUserId: string | number; referralCode: string };
+    const telegramUserId = String(rawTgId);
 
     if (!telegramUserId || !referralCode) {
       return NextResponse.json({ error: 'telegramUserId and referralCode are required' }, { status: 400 });

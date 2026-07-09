@@ -6,18 +6,18 @@ import { v4 as uuid } from 'uuid';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { telegramUserId } = body;
+    const tgId = String(body.telegramUserId);
 
-    if (!telegramUserId) {
+    if (!tgId) {
       return NextResponse.json({ error: 'telegramUserId is required' }, { status: 400 });
     }
 
-    const existing = await db.player.findUnique({ where: { telegramUserId } });
+    const existing = await db.player.findUnique({ where: { telegramUserId: tgId } });
 
     if (existing) {
       // Update existing player
       const updated = await db.player.update({
-        where: { telegramUserId },
+        where: { telegramUserId: tgId },
         data: {
           username: body.username ?? existing.username,
           firstName: body.firstName ?? existing.firstName,
@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
     const referralCode = `SD-${uuid().substring(0, 6).toUpperCase()}`;
     const player = await db.player.create({
       data: {
-        telegramUserId,
+        telegramUserId: tgId,
         username: body.username,
         firstName: body.firstName || 'Капитан',
         lastName: body.lastName,
@@ -93,7 +93,7 @@ export async function GET(request: NextRequest) {
     }
 
     const player = await db.player.findUnique({
-      where: { telegramUserId: parseInt(telegramUserId) },
+      where: { telegramUserId: String(telegramUserId) },
     });
 
     if (!player) {

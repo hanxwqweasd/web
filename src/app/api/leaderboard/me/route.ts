@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
     }
 
     const player = await db.player.findUnique({
-      where: { telegramUserId: parseInt(telegramUserId, 10) },
+      where: { telegramUserId },
       select: {
         rating: true,
         level: true,

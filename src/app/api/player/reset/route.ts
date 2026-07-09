@@ -11,8 +11,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'telegramUserId is required' }, { status: 400 });
     }
 
-    const tgId = parseInt(telegramUserId, 10);
-    if (isNaN(tgId)) {
+    const tgId = String(telegramUserId);
+    if (!tgId) {
       return NextResponse.json({ error: 'Invalid user ID' }, { status: 400 });
     }
 

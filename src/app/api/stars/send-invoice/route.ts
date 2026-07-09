@@ -28,8 +28,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Payment not configured' }, { status: 500 });
     }
 
-    const tgId = parseInt(telegramUserId, 10);
-    if (isNaN(tgId)) {
+    const tgId = String(telegramUserId);
+    if (!tgId) {
       return NextResponse.json({ success: false, error: 'Invalid user ID' }, { status: 400 });
     }
 
@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        chat_id: tgId,
+        chat_id: Number(tgId),
         title: `Star Dominion — ${item.name}`,
         description: item.description,
         payload: `${itemId}:${telegramUserId}`,

@@ -45,7 +45,7 @@ export async function GET(request: NextRequest) {
         { username: { contains: search } },
         { firstName: { contains: search } },
         { captainName: { contains: search } },
-        { telegramUserId: { equals: parseInt(search) || undefined } },
+        { telegramUserId: { equals: search } },
       ];
     }
 

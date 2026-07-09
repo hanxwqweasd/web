@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
       where.OR = [
         { username: { contains: search } },
         { firstName: { contains: search } },
-        { telegramUserId: isNaN(parseInt(search, 10)) ? undefined : { equals: parseInt(search, 10) } },
+        { telegramUserId: { equals: search } },
       ].filter((clause) => clause !== undefined) as Prisma.PlayerWhereInput[]
     }
 

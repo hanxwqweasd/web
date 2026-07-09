@@ -9,7 +9,7 @@ datasource db {
 
 model Player {
   id                    String   @id @default(cuid())
-  telegramUserId        Int      @unique
+  telegramUserId        String   @unique
   username              String?
   firstName             String   @default("Капитан")
   lastName              String?
