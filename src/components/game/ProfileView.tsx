@@ -292,10 +292,13 @@ function ReferralSection() {
       .finally(() => setLoading(false));
   }, []);
 
+  const referralLink = referralData
+    ? `https://t.me/StarDominionBot/StarDominion?startapp=${referralData.referralCode}`
+    : '';
+
   const copyReferralLink = useCallback(() => {
-    if (!referralData) return;
-    const link = `https://t.me/StarDominionBot/StarDominion?startapp=${referralData.referralCode}`;
-    navigator.clipboard.writeText(link).then(() => {
+    if (!referralLink) return;
+    navigator.clipboard.writeText(referralLink).then(() => {
       setCopied(true);
       hapticFeedback('success');
       toast.success('Ссылка скопирована!');
@@ -303,7 +306,7 @@ function ReferralSection() {
     }).catch(() => {
       toast.error('Не удалось скопировать');
     });
-  }, [referralData]);
+  }, [referralLink]);
 
   if (loading) {
     return (
@@ -351,20 +354,20 @@ function ReferralSection() {
         <h3 className="text-sm font-bold neon-text-green">Пригласи друга</h3>
       </div>
 
-      {/* Referral code */}
+      {/* Referral link */}
       <div
-        className="flex items-center justify-between p-2.5 rounded-lg mb-3"
+        className="flex items-center gap-2 p-2.5 rounded-lg mb-3"
         style={{ background: 'rgba(0, 240, 255, 0.06)', border: '1px solid rgba(0, 240, 255, 0.15)' }}
       >
-        <div>
-          <div className="text-[10px] text-slate-500 mb-0.5">Ваш код</div>
-          <div className="font-mono text-sm neon-text-cyan">{referralData.referralCode}</div>
+        <div className="flex-1 min-w-0">
+          <div className="text-[10px] text-slate-500 mb-0.5">Ваша реферальная ссылка</div>
+          <div className="text-[10px] font-mono neon-text-cyan truncate">{referralLink}</div>
         </div>
         <Button
           size="sm"
           variant="ghost"
           onClick={copyReferralLink}
-          className="h-8 px-3 text-xs holo-btn text-cyan-300 hover:text-cyan-200"
+          className="h-8 px-3 text-xs holo-btn text-cyan-300 hover:text-cyan-200 flex-shrink-0"
         >
           {copied ? <Check className="w-4 h-4 text-neon-green" /> : <Copy className="w-4 h-4" />}
         </Button>

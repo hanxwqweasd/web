@@ -24,6 +24,8 @@ import {
   Target,
   Loader2,
   RefreshCw,
+  Calendar,
+  Diamond,
 } from 'lucide-react';
 import {
   AlertDialog,
@@ -75,6 +77,12 @@ function FactionBadge({ faction }: { faction: string }) {
 // ============================================
 // Top 3 Podium
 // ============================================
+const WEEKLY_REWARDS = [
+  { rank: 1, crystals: 5000, shards: 1000, color: '#fbbf24' },
+  { rank: 2, crystals: 2000, shards: 500, color: '#94a3b8' },
+  { rank: 3, crystals: 1000, shards: 200, color: '#cd7f32' },
+];
+
 function Top3Podium({
   players,
   onChallenge,
@@ -87,128 +95,175 @@ function Top3Podium({
   if (players.length < 3) return null;
 
   const top3 = players.slice(0, 3);
-  const order = [1, 0, 2]; // Display order: #1 center, #2 left, #3 right
-
-  const rankConfig = [
-    { rank: 1, label: '#1', color: '#fbbf24', glow: '0 0 25px rgba(251,191,36,0.4)', reward: '💎5000 кристаллов + ⭐1000 осколков' },
-    { rank: 2, label: '#2', color: '#94a3b8', glow: 'none', reward: '💎3000 кристаллов + ⭐500 осколков' },
-    { rank: 3, label: '#3', color: '#d97706', glow: 'none', reward: '💎1500 кристаллов + ⭐250 осколков' },
+  // Display order: 2nd left, 1st center, 3rd right
+  const order = [1, 0, 2];
+  const podiumHeights = ['h-20', 'h-28', 'h-16']; // 2nd, 1st, 3rd
+  const podiumBgs = [
+    'linear-gradient(to top, rgba(148,163,184,0.15), rgba(148,163,184,0.03))',
+    'linear-gradient(to top, rgba(251,191,36,0.2), rgba(251,191,36,0.04))',
+    'linear-gradient(to top, rgba(205,127,50,0.15), rgba(205,127,50,0.03))',
+  ];
+  const podiumBorders = [
+    'border-t-slate-400/40',
+    'border-t-amber-400/60',
+    'border-t-orange-600/40',
   ];
 
   return (
     <motion.div
       initial={{ opacity: 0, y: -10 }}
       animate={{ opacity: 1, y: 0 }}
-      className="flex items-end justify-center gap-2 mb-4 pt-2"
+      className="mb-4 pt-1"
     >
-      {order.map((idx) => {
-        const player = top3[idx];
-        const config = rankConfig[idx];
-        const isCenter = idx === 0;
-        const isMe = playerIsMe(player.telegramUserId);
+      {/* Weekly reward banner */}
+      <div
+        className="flex items-center justify-center gap-1.5 mb-3 py-1.5 rounded-lg mx-auto max-w-[260px]"
+        style={{ background: 'rgba(251, 191, 36, 0.06)', border: '1px solid rgba(251, 191, 36, 0.12)' }}
+      >
+        <Calendar className="w-3 h-3 text-amber-400" />
+        <span className="text-[9px] font-mono text-amber-400/80">Награды за неделю по рейтингу</span>
+      </div>
 
-        return (
-          <motion.div
-            key={player.rank}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: idx * 0.1 }}
-            className={`flex flex-col items-center ${isCenter ? 'pt-0' : 'pt-6'}`}
-            style={{ minWidth: isCenter ? '110px' : '95px' }}
-          >
-            {/* Crown for #1 */}
-            {player.rank === 1 && (
-              <Crown className="w-5 h-5 mb-1" style={{ color: '#fbbf24', filter: 'drop-shadow(0 0 6px rgba(251,191,36,0.6))' }} />
-            )}
+      <div className="flex items-end justify-center gap-1.5">
+        {order.map((idx) => {
+          const player = top3[idx];
+          const reward = WEEKLY_REWARDS[idx];
+          const isCenter = idx === 0;
+          const isMe = playerIsMe(player.telegramUserId);
 
-            {/* Avatar */}
-            <div
-              className="w-12 h-12 rounded-full flex items-center justify-center text-lg font-bold font-mono neon-border mb-1.5"
-              style={{
-                background: isCenter
-                  ? `linear-gradient(135deg, ${config.color}33, ${config.color}11)`
-                  : 'rgba(15, 15, 35, 0.85)',
-                boxShadow: config.glow,
-                borderColor: `${config.color}55`,
-              }}
+          return (
+            <motion.div
+              key={player.rank}
+              initial={{ opacity: 0, y: 30 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: isCenter ? 0.15 : 0.05, duration: 0.4 }}
+              className="flex flex-col items-center flex-1 max-w-[120px]"
             >
-              {player.name.charAt(0)}
-            </div>
-
-            {/* Name */}
-            <div className="text-[11px] font-medium text-center px-1 truncate w-full" style={{ color: config.color }}>
-              {player.name}
-            </div>
-
-            {/* Value */}
-            <div className="font-mono text-xs text-slate-400">{player.value.toLocaleString('ru-RU')}</div>
-
-            {/* Faction + Level */}
-            <div className="flex items-center gap-1 mt-1">
-              <FactionBadge faction={player.faction} />
-              <span className="text-[10px] text-slate-600">Ур.{player.level}</span>
-            </div>
-
-            {/* Reward display */}
-            <div className="text-[9px] mt-1 text-center font-mono px-1" style={{ color: config.color }}>
-              {config.reward}
-            </div>
-
-            {/* Challenge button */}
-            {!isMe && (
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="mt-2 h-7 text-[10px] px-2 holo-btn text-neon-red hover:text-red-300"
-                    onClick={() => hapticFeedback('medium')}
+              {/* Player info above podium */}
+              <div className="flex flex-col items-center mb-2">
+                {/* Crown for #1 */}
+                {player.rank === 1 && (
+                  <motion.div
+                    animate={{ y: [0, -3, 0] }}
+                    transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
                   >
-                    <Swords className="w-3 h-3 mr-1" />
-                    Вызвать
-                  </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent
-                  className="max-w-xs neon-border"
-                  style={{ background: 'rgba(10, 10, 30, 0.97)' }}
-                >
-                  <AlertDialogHeader>
-                    <AlertDialogTitle className="neon-text-cyan text-base">
-                      ⚔️ Вызов на бой
-                    </AlertDialogTitle>
-                    <AlertDialogDescription className="text-slate-400 text-sm">
-                      Вызвать <span style={{ color: config.color }}>{player.name}</span> на PvP-битву?
-                      <br />
-                      <span className="text-[10px] text-slate-600">Победа: +50 рейтинга, поражение: -30</span>
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter className="flex-col gap-2 sm:flex-col">
-                    <AlertDialogAction
-                      onClick={() => {
-                        hapticFeedback('heavy');
-                        onChallenge(player);
-                        toast.info('Бой начинается! Перейдите во Флот.');
-                      }}
-                      className="bg-neon-cyan/20 text-cyan-300 border border-cyan-500/30 hover:bg-neon-cyan/30"
-                    >
-                      ⚔️ Принять бой
-                    </AlertDialogAction>
-                    <AlertDialogCancel className="bg-slate-800/50 text-slate-400 border-slate-700/50 hover:bg-slate-800">
-                      Отмена
-                    </AlertDialogCancel>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-            )}
+                    <Crown className="w-5 h-5 mb-1" style={{ color: '#fbbf24', filter: 'drop-shadow(0 0 8px rgba(251,191,36,0.6))' }} />
+                  </motion.div>
+                )}
 
-            {isMe && (
-              <Badge className="mt-2 text-[9px] px-1.5 py-0 bg-cyan-500/10 border border-cyan-500/30 text-cyan-400">
-                Вы
-              </Badge>
-            )}
-          </motion.div>
-        );
-      })}
+                {/* Avatar */}
+                <div
+                  className="w-11 h-11 rounded-full flex items-center justify-center text-base font-bold font-mono mb-1"
+                  style={{
+                    background: `linear-gradient(135deg, ${reward.color}28, ${reward.color}08)`,
+                    border: `2px solid ${reward.color}50`,
+                    boxShadow: player.rank === 1 ? `0 0 16px ${reward.color}30` : 'none',
+                  }}
+                >
+                  {player.name.charAt(0).toUpperCase()}
+                </div>
+
+                {/* Name */}
+                <div className="text-[10px] font-bold text-center px-0.5 truncate w-full" style={{ color: reward.color }}>
+                  {player.name}
+                </div>
+
+                {/* Rating value */}
+                <div className="font-mono text-[10px] text-slate-400">{player.value.toLocaleString('ru-RU')}</div>
+
+                {/* Level */}
+                <div className="flex items-center gap-1 mt-0.5">
+                  <FactionBadge faction={player.faction} />
+                  <span className="text-[9px] text-slate-600">Ур.{player.level}</span>
+                </div>
+              </div>
+
+              {/* Podium column */}
+              <div
+                className={`w-full rounded-t-lg flex flex-col items-center justify-start pt-2 ${podiumHeights[idx]} border-t-2 ${podiumBorders[idx]}`}
+                style={{ background: podiumBgs[idx] }}
+              >
+                {/* Rank number */}
+                <span
+                  className="text-2xl font-bold font-mono"
+                  style={{ color: reward.color, opacity: 0.7 }}
+                >
+                  {player.rank}
+                </span>
+
+                {/* Weekly reward */}
+                <div className="mt-auto mb-2 text-center px-1">
+                  <div className="flex items-center justify-center gap-0.5">
+                    <Diamond className="w-2.5 h-2.5" style={{ color: reward.color }} />
+                    <span className="text-[8px] font-mono font-bold" style={{ color: reward.color }}>
+                      {reward.crystals.toLocaleString('ru-RU')}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-center gap-0.5 mt-0.5">
+                    <Star className="w-2.5 h-2.5" style={{ color: reward.color }} />
+                    <span className="text-[8px] font-mono font-bold" style={{ color: reward.color }}>
+                      {reward.shards.toLocaleString('ru-RU')}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Action buttons below podium */}
+              <div className="mt-2 h-7 flex items-center">
+                {!isMe ? (
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 text-[9px] px-2 holo-btn text-neon-red hover:text-red-300"
+                        onClick={() => hapticFeedback('medium')}
+                      >
+                        <Swords className="w-2.5 h-2.5 mr-0.5" />
+                        Бой
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent
+                      className="max-w-xs neon-border"
+                      style={{ background: 'rgba(10, 10, 30, 0.97)' }}
+                    >
+                      <AlertDialogHeader>
+                        <AlertDialogTitle className="neon-text-cyan text-base">
+                          ⚔️ Вызов на бой
+                        </AlertDialogTitle>
+                        <AlertDialogDescription className="text-slate-400 text-sm">
+                          Вызвать <span style={{ color: reward.color }}>{player.name}</span> на PvP-битву?
+                          <br />
+                          <span className="text-[10px] text-slate-600">Победа: +50 рейтинга, поражение: -30</span>
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter className="flex-col gap-2 sm:flex-col">
+                        <AlertDialogAction
+                          onClick={() => {
+                            hapticFeedback('heavy');
+                            onChallenge(player);
+                            toast.info('Бой начинается! Перейдите во Флот.');
+                          }}
+                          className="bg-neon-cyan/20 text-cyan-300 border border-cyan-500/30 hover:bg-neon-cyan/30"
+                        >
+                          ⚔️ Принять бой
+                        </AlertDialogAction>
+                        <AlertDialogCancel className="bg-slate-800/50 text-slate-400 border-slate-700/50 hover:bg-slate-800">
+                          Отмена
+                        </AlertDialogCancel>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                ) : (
+                  <Badge className="text-[8px] px-1.5 py-0 bg-cyan-500/10 border border-cyan-500/30 text-cyan-400">
+                    Вы
+                  </Badge>
+                )}
+              </div>
+            </motion.div>
+          );
+        })}
+      </div>
     </motion.div>
   );
 }
